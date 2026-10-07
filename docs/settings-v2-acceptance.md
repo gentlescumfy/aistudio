@@ -28,10 +28,11 @@ Status: implementation delivered and automated/browser checks recorded in `docs/
 
 ## Honest execution and credential handling
 
-1. No external generation, connection request, CLI login or catalogue refresh happens during configuration save.
+1. Saving configuration makes no external request. An explicit AgnesAI check makes one bounded GET to `/v1/models`; it never sends a prompt or starts generation.
 2. Runtime stays mode mock with activeImageModel mock-svg, even when draft routes select other models.
 3. API replies expose credential presence per account, not credential values. Raw keys are rejected.
 4. Local transport requires a loopback endpoint. Unsupported CLI transport is not falsely enabled.
+5. The AgnesAI check reads `GNESAI_API_KEY` on the API process only and reports missing key, authorization/connection failure, or readable model count without returning the key or model IDs.
 
 ## Verification record
 

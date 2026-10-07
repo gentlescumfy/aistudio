@@ -11,6 +11,7 @@ import { SettingsStore, saveSettingsSchema } from './settings.js';
 import { RoleStore, archiveRoleRequestSchema, createRoleRequestSchema, editRoleRequestSchema } from './roles.js';
 import { WorkflowStore } from './workflows.js';
 import { LangflowService } from './langflow.js';
+import { validateAgnesAi } from './agnesai.js';
 import { langflowRunRequestSchema, saveLangflowConfigSchema } from './langflow-contract.js';
 import { workflowArchiveRequestSchema, workflowDefinitionSchema, workflowMutationSchema, workflowPublishRequestSchema } from './workflow-contract.js';
 
@@ -23,6 +24,8 @@ export interface AppOptions {
   provider?: Provider;
   /** Tests inject a bounded fake upstream; production always uses Node's fetch. */
   langflowFetch?: typeof fetch;
+  /** Tests may inject the provider-catalogue request; production uses Node's fetch. */
+  agnesAiFetch?: typeof fetch;
 }
 const idSchema = z.uuid();
 const noBody = z.strictObject({});
@@ -50,6 +53,7 @@ export async function createApp(options: AppOptions): Promise<FastifyInstance> {
     const assets = await AssetStore.open(options.dataDir);
     settingsStore = await SettingsStore.open(options.dataDir);
     const settings = settingsStore;
+    const agnesAiFetch = options.agnesAiFetch ?? fetch;
     roles = await RoleStore.open(options.dataDir);
     workflows = await WorkflowStore.open(options.dataDir);
     langflow = await LangflowService.open(options.dataDir, options.langflowFetch ?? fetch, (message) => app.log.error(message));
@@ -143,6 +147,10 @@ export async function createApp(options: AppOptions): Promise<FastifyInstance> {
     app.post('/api/settings', { bodyLimit: 128 * 1024 }, async (request) => {
       runs.assertAvailable();
       return settings.save(saveSettingsSchema.parse(request.body));
+    });
+    app.post('/api/settings/validate-agnesai', async (request) => {
+      noBody.parse(request.body === undefined ? {} : request.body);
+      return validateAgnesAi(agnesAiFetch);
     });
     app.get('/api/roles', async () => roleStore.read(resolveRoleModel));
     app.post('/api/roles', { bodyLimit: 64 * 1024 }, async (request, reply) => {

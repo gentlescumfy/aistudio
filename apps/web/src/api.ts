@@ -1,4 +1,4 @@
-import type { AccountConfig, Capability, Inputs, LangflowConfig, LangflowConfigResponse, LangflowFlow, LangflowRun, LangflowStatus, ModelBinding, ModelConfig, ProviderConfig, Role, RoleDefinition, RoleLibrary, RoleMutationResponse, RoleRevisionsResponse, Run, SettingsResponse, StudioSettings, Template, ToolDeclaration, Workflow, WorkflowDefinition, WorkflowLibrary, WorkflowMutationResponse, WorkflowRevisionsResponse, WorkflowValidation } from './types';
+import type { AccountConfig, AgnesAiValidation, Capability, Inputs, LangflowConfig, LangflowConfigResponse, LangflowFlow, LangflowRun, LangflowStatus, ModelBinding, ModelConfig, ProviderConfig, Role, RoleDefinition, RoleLibrary, RoleMutationResponse, RoleRevisionsResponse, Run, SettingsResponse, StudioSettings, Template, ToolDeclaration, Workflow, WorkflowDefinition, WorkflowLibrary, WorkflowMutationResponse, WorkflowRevisionsResponse, WorkflowValidation } from './types';
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000').replace(/\/+$/, '');
 export class ApiError extends Error {
@@ -99,6 +99,13 @@ const validWorkflowValidation = (value: unknown): value is WorkflowValidation =>
   && Array.isArray(value.warnings) && value.warnings.every(warning => typeof warning === 'string');
 const uuid = (value: unknown) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 const langflowAuthModes = ['local-development', 'api-key-env'] as const;
+const agnesAiValidationStatuses = ['connected', 'missing_key', 'unauthorized', 'forbidden', 'rate_limited', 'upstream_error', 'network_error', 'invalid_response'] as const;
+const validAgnesAiValidation = (value: unknown): value is AgnesAiValidation => record(value) && Object.keys(value).length === 5
+  && Object.keys(value).every(key => ['ok', 'status', 'message', 'modelCount', 'checkedAt'].includes(key))
+  && typeof value.ok === 'boolean' && agnesAiValidationStatuses.includes(value.status as typeof agnesAiValidationStatuses[number])
+  && value.ok === (value.status === 'connected') && typeof value.message === 'string' && value.message.length <= 500
+  && (value.modelCount === null || Number.isInteger(value.modelCount) && (value.modelCount as number) >= 0)
+  && typeof value.checkedAt === 'string' && Number.isFinite(Date.parse(value.checkedAt));
 const localLangflowUrl = (value: unknown) => {
   if (typeof value !== 'string' || value.length > 500) return false;
   try {
@@ -221,6 +228,7 @@ const validRun = (value: unknown) => record(value) && typeof value.id === 'strin
     && (node.outputPrompt === undefined || typeof node.outputPrompt === 'string'));
 function validPayload(path: string, payload: unknown, body?: unknown): boolean {
   if (!record(payload)) return false;
+  if (path === '/api/settings/validate-agnesai') return validAgnesAiValidation(payload);
   if (path === '/api/langflow/config') return validLangflowConfigResponse(payload);
   if (path === '/api/langflow/status') return validLangflowStatus(payload);
   if (path === '/api/langflow/flows') return Object.keys(payload).length === 1 && Array.isArray(payload.flows)
@@ -301,6 +309,7 @@ export const api = {
     request<{ run: LangflowRun }>('/api/langflow/runs', signal, { flowId, input, idempotencyKey }),
   settings: (signal: AbortSignal) => request<SettingsResponse>('/api/settings', signal),
   saveSettings: (revision: number, settings: StudioSettings, signal: AbortSignal) => request<SettingsResponse>('/api/settings', signal, { schemaVersion: 2, revision, settings }),
+  validateAgnesAi: (signal: AbortSignal) => request<AgnesAiValidation>('/api/settings/validate-agnesai', signal, {}),
   roles: (signal: AbortSignal) => request<RoleLibrary>('/api/roles', signal),
   createRole: (revision: number, role: RoleDefinition, signal: AbortSignal) => request<RoleMutationResponse>('/api/roles', signal, { revision, role }),
   updateRole: (id: string, revision: number, role: RoleDefinition, signal: AbortSignal) => request<RoleMutationResponse>(`/api/roles/${encodeURIComponent(id)}`, signal, { revision, role }),

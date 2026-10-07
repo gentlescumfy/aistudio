@@ -34,6 +34,7 @@ export const openapi = {
       get: { description: 'Local configuration metadata, revision, mock runtime and credential presence only. Never returns credential values.', responses: { 200: { description: 'Configuration snapshot', ...json(reference('SettingsResponse')) }, ...errorResponses } },
       post: { description: 'Accept schemaVersion=2 provider/account/model metadata or the legacy v1 {revision,settings} snapshot; persist as v2 with optimistic revision checks. Raw API keys are rejected; no external connection is made.', requestBody: { required: true, ...json(reference('SaveSettings')) }, responses: { 200: { description: 'Saved v2 configuration snapshot', ...json(reference('SettingsResponse')) }, ...errorResponses } },
     },
+    '/api/settings/validate-agnesai': { post: { description: 'Use the API process GNESAI_API_KEY to make one read-only GET request to the AgnesAI model catalogue. Never returns the key, saves settings or generates content.', requestBody: { required: true, ...json({ type: 'object', additionalProperties: false }) }, responses: { 200: { description: 'Credential and model-catalogue validation result', ...json(reference('AgnesAiValidation')) }, ...errorResponses } } },
     '/api/roles': {
       get: { description: 'Read the metadata-only role library, including archived roles and the non-executable allowlisted tool catalogue. Binding status is resolved against current Settings v2 without changing stored role history.', responses: { 200: { description: 'Role library snapshot', ...json(reference('RoleLibrary')) }, ...errorResponses } },
       post: { description: 'Create a custom draft. Persist one immutable role revision with optimistic library revision checking; metadata only.', requestBody: { required: true, ...json(reference('CreateRole')) }, responses: { 201: { description: 'Created draft', ...json(reference('RoleMutation')) }, ...errorResponses } },
@@ -83,6 +84,10 @@ export const openapi = {
       valid: { type: 'boolean' }, issues: { type: 'array', items: { type: 'object', required: ['code', 'message'], properties: { code: { type: 'string' }, message: { type: 'string' }, nodeId: { type: 'string' }, edgeId: { type: 'string' } } } }, warnings: { type: 'array', items: { type: 'string' } },
     } },
     Settings: z.toJSONSchema(settingsSchema),
+    AgnesAiValidation: { type: 'object', required: ['ok', 'status', 'message', 'modelCount', 'checkedAt'], properties: {
+      ok: { type: 'boolean' }, status: { enum: ['connected', 'missing_key', 'unauthorized', 'forbidden', 'rate_limited', 'upstream_error', 'network_error', 'invalid_response'] },
+      message: { type: 'string' }, modelCount: { type: ['integer', 'null'], minimum: 0 }, checkedAt: { type: 'string', format: 'date-time' },
+    } satisfies Record<string, unknown> },
     SettingsResponse: { type: 'object', required: ['schemaVersion', 'revision', 'settings', 'runtime', 'credentials'], properties: {
       schemaVersion: { const: 2 }, revision: { type: 'integer', minimum: 0 }, settings: reference('Settings'),
       runtime: { type: 'object', required: ['mode', 'activeImageModel', 'externalProvidersEnabled'], properties: { mode: { const: 'mock' }, activeImageModel: { const: 'mock-svg' }, externalProvidersEnabled: { const: false } } },

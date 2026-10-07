@@ -84,6 +84,10 @@ export interface SettingsResponse {
   runtime: { mode: 'mock'; activeImageModel: 'mock-svg'; externalProvidersEnabled: false };
   credentials: { accountId: string; configured: boolean }[];
 }
+export type AgnesAiValidationStatus = 'connected' | 'missing_key' | 'unauthorized' | 'forbidden' | 'rate_limited' | 'upstream_error' | 'network_error' | 'invalid_response';
+export interface AgnesAiValidation {
+  ok: boolean; status: AgnesAiValidationStatus; message: string; modelCount: number | null; checkedAt: string;
+}
 export interface RunNode extends TemplateNode {
   status: NodeStatus; attempts: number; error?: string | { code?: string; message: string };
   config?: WorkflowNode['config']; dependsOn?: string[]; outputPrompt?: string;

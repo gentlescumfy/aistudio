@@ -52,7 +52,7 @@ Proposed inheritance: workspace default -> template override -> node override ->
 
 1. Introduce the provider/account/model domain and a backward-compatible v1 draft migration, preserving revision conflict checks.
 2. Reorganize the configuration UI around those entities with truthful capability/status labels.
-3. Implement and verify one actual API adapter and explicit connection/catalogue validation.
+3. Implement and verify one actual API adapter and explicit connection/catalogue validation. The read-only AgnesAI `/v1/models` credential check is implemented; generation adapters remain future work.
 4. Add workflow-level binding overrides and execution snapshots.
 5. Add coding CLI execution only after sandbox/profile isolation is implemented.
 
