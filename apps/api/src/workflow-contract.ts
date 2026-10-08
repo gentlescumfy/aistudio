@@ -5,7 +5,7 @@ const roleRefSchema = z.strictObject({ id: z.union([slugSchema, z.uuid()]), revi
 const positionSchema = z.strictObject({ x: z.number().finite().min(-10_000).max(10_000), y: z.number().finite().min(-10_000).max(10_000) });
 const baseSchema = z.strictObject({ id: slugSchema, name: z.string().trim().min(1).max(80), position: positionSchema });
 export const workflowNodeSchema = z.discriminatedUnion('kind', [
-  baseSchema.extend({ kind: z.literal('prompt'), config: z.strictObject({ template: z.string().max(6000), roleRef: roleRefSchema.nullable() }) }),
+  baseSchema.extend({ kind: z.literal('prompt'), config: z.strictObject({ template: z.string().max(6000), roleRef: roleRefSchema.nullable(), executionMode: z.enum(['template', 'agent']).optional() }) }),
   baseSchema.extend({ kind: z.literal('image'), config: z.strictObject({ width: z.number().int().min(512).max(2048), height: z.number().int().min(512).max(2048), count: z.number().int().min(1).max(8).nullable() }) }),
   baseSchema.extend({ kind: z.literal('export'), config: z.strictObject({}) }),
 ]);
@@ -47,7 +47,7 @@ export const workflowRecordSchema = workflowDefinitionSchema.extend({
 });
 export const workflowLibrarySchema = z.strictObject({
   revision: z.number().int().nonnegative(), workflows: z.array(workflowRecordSchema), starterDefinition: workflowDefinitionSchema,
-  runtime: z.strictObject({ mode: z.literal('mock'), executableKinds: z.tuple([z.literal('prompt'), z.literal('image'), z.literal('export')]), agentExecutionEnabled: z.literal(false) }),
+  runtime: z.strictObject({ mode: z.literal('mixed'), executableKinds: z.tuple([z.literal('prompt'), z.literal('image'), z.literal('export')]), agentExecutionEnabled: z.literal(true) }),
 });
 export const workflowMutationSchema = z.strictObject({ revision: z.number().int().nonnegative(), workflow: workflowDefinitionSchema });
 export const workflowPublishRequestSchema = z.strictObject({ revision: z.number().int().nonnegative() });
@@ -63,19 +63,23 @@ export type WorkflowValidation = { valid: boolean; issues: GraphIssue[]; warning
 export type GraphIssue = { code: string; message: string; nodeId?: string; edgeId?: string };
 export type WorkflowTemplate = {
   id: string; name: string; description: string; category: 'image'; enabled: true;
-  nodes: { id: string; name: string; kind: string }[]; workflowRevision: number; source: 'workflow';
+  nodes: { id: string; name: string; kind: string }[]; workflowRevision: number; source: 'workflow'; agentNodeCount: number;
 };
 
 export const starterDefinition: WorkflowDefinition = {
-  name: 'Brand concept workflow',
-  description: 'A local mock workflow that prepares a brief, renders SVG concepts and validates the export.',
+  name: '咖啡新品上市视觉全流程',
+  description: '完整链路：上市创意简报 → 3 镜分镜 → 连续性审查 → 主视觉生成 → 素材交付。示例输入：云南小批量浅烘焙咖啡，150 g 整豆，花香与柑橘尾韵；受众为手冲爱好者；视觉温暖、安静。不得虚构认证或未提供的产品事实。',
   nodes: [
-    { id: 'brief', name: 'Prepare brief', position: { x: 80, y: 160 }, kind: 'prompt', config: { template: 'Create a visual brand concept for: {{prompt}}. Requested count: {{count}}.', roleRef: null } },
-    { id: 'generate', name: 'Generate concepts', position: { x: 360, y: 160 }, kind: 'image', config: { width: 1024, height: 1024, count: null } },
-    { id: 'export', name: 'Export assets', position: { x: 640, y: 160 }, kind: 'export', config: {} },
+    { id: 'campaign-brief', name: '提炼上市创意简报', position: { x: 80, y: 160 }, kind: 'prompt', config: { template: '为以下咖啡新品准备上市创意简报。给出目标客群、核心卖点、品牌语气、一句主标语和视觉方向；没有提供的数据标为未知，不要编造。\n产品资料：{{prompt}}\n本次需要交付 {{count}} 张主视觉。', roleRef: { id: 'scriptwriter', revision: 1 }, executionMode: 'agent' } },
+    { id: 'shot-plan', name: '编排产品分镜', position: { x: 380, y: 160 }, kind: 'prompt', config: { template: '根据上游创意简报设计 3 个可用于同一上市活动的产品镜头。每个镜头写明目的、主体、构图、光线、背景、主色和一条完整的图像提示词；产品包装和品牌色必须保持一致。\n创意简报：{{prompt}}', roleRef: { id: 'storyboard-director', revision: 1 }, executionMode: 'agent' } },
+    { id: 'continuity-review', name: '审查并修正视觉提示词', position: { x: 680, y: 160 }, kind: 'prompt', config: { template: '检查上游分镜中的产品外观、包装、品牌色、场景和事实是否一致。修正冲突后，只输出一条完整、可直接用于生成主视觉的最终提示词；不要加入未提供的产品规格或文字。\n分镜方案：{{prompt}}', roleRef: { id: 'continuity-reviewer', revision: 1 }, executionMode: 'agent' } },
+    { id: 'hero-image', name: '生成上市主视觉', position: { x: 980, y: 160 }, kind: 'image', config: { width: 1024, height: 1024, count: 1 } },
+    { id: 'delivery', name: '交付主视觉素材', position: { x: 1280, y: 160 }, kind: 'export', config: {} },
   ],
   edges: [
-    { id: 'brief-generate', source: 'brief', target: 'generate' },
-    { id: 'generate-export', source: 'generate', target: 'export' },
+    { id: 'brief-storyboard', source: 'campaign-brief', target: 'shot-plan' },
+    { id: 'storyboard-review', source: 'shot-plan', target: 'continuity-review' },
+    { id: 'review-image', source: 'continuity-review', target: 'hero-image' },
+    { id: 'image-delivery', source: 'hero-image', target: 'delivery' },
   ],
 };

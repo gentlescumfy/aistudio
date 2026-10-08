@@ -1,6 +1,6 @@
 # Agent role acceptance requirements
 
-Status: design-only checklist. None of the future role execution checks below are claimed to pass today.
+Status: broader agent-platform checklist; this is not a pass report. AI Studio currently implements only single-turn text calls from published workflow prompt nodes. The remaining checks for instances, tools, durable conversations, authorization, gates and team orchestration are future work.
 
 ## Definition and versioning
 
@@ -44,4 +44,4 @@ Status: design-only checklist. None of the future role execution checks below ar
 
 ## Current project boundary
 
-The implemented project supplies local mock image workflows, settings v2 provider/account/model metadata, and a role library with read-only built-ins, versioned custom drafts, model selection and archive/history. Role-library observed results are recorded separately. Agent instances, reasoning loops, authorized tools, CLI login/sandbox, team execution and production tenant/auth boundaries remain unimplemented. This document remains the acceptance contract for future execution rather than a runnable verification report.
+The current runtime snapshots a role, calls one OpenAI-compatible chat completion for each explicitly enabled prompt node, stores the returned text and passes it downstream. Tool declarations are never executed, and execution limits other than deadline are not enforced. Image nodes remain local mock SVG. Missing route/credential is rejected before a run is persisted. Live provider generation remains unverified until a valid model route and API-process credential are configured. Agent instances, reasoning loops, authorized tools, CLI login/sandbox, team execution and production tenant/auth boundaries remain unimplemented.

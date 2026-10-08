@@ -8,7 +8,7 @@ import type { Run } from '../src/domain.js';
 
 test('health, template visibility, specification and JSON errors', async (t) => {
   const { app } = await fixture(t);
-  assert.deepEqual((await app.inject('/api/health')).json(), { status: 'ok', mode: 'mock', roleStorage: { available: true, mode: 'metadata-only' }, workflowStorage: { available: true, mode: 'local-file' } });
+  assert.deepEqual((await app.inject('/api/health')).json(), { status: 'ok', mode: 'mock', roleStorage: { available: true, mode: 'single-turn-text' }, workflowStorage: { available: true, mode: 'local-file' } });
   const templates = (await app.inject('/api/templates')).json().templates;
   assert.equal(templates.length, 3);
   assert.deepEqual(templates.map((item: { enabled: boolean }) => item.enabled), [true, false, false]);

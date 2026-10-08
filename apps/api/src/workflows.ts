@@ -64,7 +64,7 @@ export class WorkflowStore {
     if (this.fault) throw new ApiError(503, 'WORKFLOW_STORAGE_UNAVAILABLE', 'Workflow storage is unavailable. Inspect local storage and restart the API.');
   }
 
-  read(): { revision: number; workflows: Workflow[]; starterDefinition: WorkflowDefinition; runtime: { mode: 'mock'; executableKinds: ['prompt', 'image', 'export']; agentExecutionEnabled: false } } {
+  read(): { revision: number; workflows: Workflow[]; starterDefinition: WorkflowDefinition; runtime: { mode: 'mixed'; executableKinds: ['prompt', 'image', 'export']; agentExecutionEnabled: true } } {
     this.assertAvailable();
     const latest = new Map<string, Workflow>();
     for (const workflow of this.state.workflowHistory) {
@@ -74,7 +74,7 @@ export class WorkflowStore {
       revision: this.state.revision,
       workflows: structuredClone([...latest.values()]),
       starterDefinition: structuredClone(starterDefinition),
-      runtime: { mode: 'mock', executableKinds: ['prompt', 'image', 'export'], agentExecutionEnabled: false },
+      runtime: { mode: 'mixed', executableKinds: ['prompt', 'image', 'export'], agentExecutionEnabled: true },
     };
   }
 
@@ -147,7 +147,7 @@ export class WorkflowStore {
       .flatMap((workflow) => {
         const published = this.published(workflow.id, workflow.publishedRevision!);
         if (!published) return [];
-        return [{ id: workflow.id, name: published.name, description: published.description, category: 'image', enabled: true, nodes: published.nodes.map(({ id, name, kind }) => ({ id, name, kind })), workflowRevision: published.revision, source: 'workflow' }];
+        return [{ id: workflow.id, name: published.name, description: published.description, category: 'image', enabled: true, nodes: published.nodes.map(({ id, name, kind }) => ({ id, name, kind })), workflowRevision: published.revision, source: 'workflow', agentNodeCount: published.nodes.filter((node) => node.kind === 'prompt' && node.config.executionMode === 'agent').length }];
       });
   }
 
@@ -223,6 +223,7 @@ export function validateWorkflow(definition: WorkflowDefinition, resolveRole: Ro
   for (const node of nodes) {
     const ins = incoming.get(node.id)!;
     if (node.kind === 'prompt') {
+      if (node.config.executionMode === 'agent' && !node.config.roleRef) add('AGENT_ROLE_REQUIRED', `代理步骤“${node.name}”必须绑定一个角色版本。`, node.id);
       if (ins.filter((edge) => byId.get(edge.source)?.kind === 'prompt').length > 1) add('PROMPT_PARENT_LIMIT', 'Prompt nodes can receive at most one prompt parent.', node.id);
       const placeholders = [...node.config.template.matchAll(/{{\s*([^{}]+?)\s*}}/g)].map((match) => match[1]!);
       for (const placeholder of placeholders) if (!['prompt', 'count'].includes(placeholder)) add('UNKNOWN_PLACEHOLDER', `Unknown prompt placeholder {{${placeholder}}}.`, node.id);
@@ -233,6 +234,7 @@ export function validateWorkflow(definition: WorkflowDefinition, resolveRole: Ro
         if (!role) add('ROLE_REVISION_NOT_FOUND', `Prompt node ${node.name} references a missing role revision.`, node.id);
         else if (role.currentLifecycle === 'archived') add('ROLE_CURRENT_ARCHIVED', `Prompt node ${node.name} references a role that is currently archived.`, node.id);
         else if (role.role.lifecycle === 'archived') add('ROLE_REVISION_ARCHIVED', `Prompt node ${node.name} references an archived role revision.`, node.id);
+        else if (node.config.executionMode === 'agent' && role.role.modelStatus === 'unavailable') add('AGENT_ROLE_MODEL_UNAVAILABLE', `代理角色“${role.role.name}”绑定的模型已不可用。`, node.id);
       }
     } else if (node.kind === 'image') {
       if (ins.length !== 1 || byId.get(ins[0]?.source ?? '')?.kind !== 'prompt') add('IMAGE_PROMPT_PARENT', 'Each image node must receive exactly one prompt parent.', node.id);
@@ -269,10 +271,14 @@ export function validateWorkflow(definition: WorkflowDefinition, resolveRole: Ro
     for (const node of nodes) if (!fromRoot.has(node.id) || !toExport.has(node.id)) add('DISCONNECTED_NODE', `Node ${node.name} is not on a path from the root prompt to export.`, node.id);
   }
   const roleCount = nodes.filter((node) => node.kind === 'prompt' && node.config.roleRef).length;
+  const agentCount = nodes.filter((node) => node.kind === 'prompt' && node.config.executionMode === 'agent').length;
   return {
     valid: issues.length === 0,
     issues,
-    warnings: roleCount ? ['Role references are versioned descriptive snapshots only; no agent, model, or declared tool is executed.'] : [],
+    warnings: [
+      ...(agentCount ? ['代理节点将调用已配置的 OpenAI 兼容文本模型；图像仍使用本地 SVG 模拟，角色工具声明不会执行。'] : []),
+      ...(roleCount > agentCount ? ['仅选择“模板处理”的角色引用只保存职责和版本快照，不会调用代理。'] : []),
+    ],
   };
 }
 

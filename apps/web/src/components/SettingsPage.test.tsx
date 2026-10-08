@@ -2,6 +2,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { installApi, sampleSettings } from '../test-fixtures';
+import { api } from '../api';
 import App from '../App';
 import { SettingsPage } from './SettingsPage';
 
@@ -53,6 +54,19 @@ describe('模型配置 v2', () => {
     expect(screen.getByRole('button', { name: /仅显示收藏/ })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByText('文本模型')).toBeVisible();
     wrapper.unmount();
+  });
+
+  it('显示 AgnesAI 只读目录验证结果，不要求在浏览器录入密钥', async () => {
+    const user = userEvent.setup(); installApi();
+    const validation = vi.spyOn(api, 'validateAgnesAi').mockResolvedValue({
+      ok: true, status: 'connected', message: 'AgnesAI 模型目录读取成功，共 2 个模型；此验证不测试生成权限。', modelCount: 2, checkedAt: '2026-10-07T00:00:00.000Z',
+    });
+    render(<SettingsPage />); await screen.findByRole('heading', { name: '创作默认值' });
+    expect(screen.queryByLabelText(/API密钥|密钥值/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '验证 AgnesAI' }));
+    expect(await screen.findByText(/目录读取成功，共 2 个模型/)).toBeVisible();
+    expect(validation).toHaveBeenCalledOnce();
+    validation.mockRestore();
   });
 
   it('删除被引用的供应商前说明级联内容，确认后才保存清除后的关联', async () => {

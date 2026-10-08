@@ -27,7 +27,7 @@ const definition: WorkflowDefinition = {
 };
 const initialLibrary: WorkflowLibrary = {
   revision: 4, workflows: [], starterDefinition: definition,
-  runtime: { mode: 'mock', executableKinds: ['prompt', 'image', 'export'], agentExecutionEnabled: false },
+  runtime: { mode: 'mixed', executableKinds: ['prompt', 'image', 'export'], agentExecutionEnabled: true },
 };
 const makeWorkflow = (patch: Partial<Workflow> = {}): Workflow => ({
   ...structuredClone(definition), id: '8bb3500d-0734-48e8-81c5-96c5131ecfc9', revision: 1, lifecycle: 'draft', publishedRevision: null,
@@ -39,12 +39,12 @@ describe('工作流配置页面', () => {
     vi.restoreAllMocks();
     vi.stubGlobal('confirm', vi.fn(() => true));
     vi.spyOn(api, 'workflows').mockResolvedValue(structuredClone(initialLibrary));
-    vi.spyOn(api, 'roles').mockResolvedValue({ revision: 1, roles: [], tools: [], runtime: { enabled: false, mode: 'metadata-only' } });
+    vi.spyOn(api, 'roles').mockResolvedValue({ revision: 1, roles: [], tools: [], runtime: { enabled: true, mode: 'single-turn-text' } });
   });
 
   it('从服务端起始图创建草稿，保存纯契约字段并读取修订历史', async () => {
     const user = userEvent.setup();
-    const created = makeWorkflow({ name: '新的图像工作流', description: '从品牌图像工作流起步，可调整节点与参数。' });
+    const created = makeWorkflow({ name: definition.name, description: definition.description });
     const createSpy = vi.spyOn(api, 'createWorkflow').mockResolvedValue({ revision: 5, workflow: created });
     const updateSpy = vi.spyOn(api, 'updateWorkflow').mockImplementation(async (_id, _revision, saved) => ({ revision: 6, workflow: makeWorkflow({ ...saved, revision: 2 }) } as WorkflowMutationResponse));
     const historySpy = vi.spyOn(api, 'workflowRevisions').mockResolvedValue({ revisions: [created] } as WorkflowRevisionsResponse);
@@ -52,8 +52,8 @@ describe('工作流配置页面', () => {
 
     expect(await screen.findByText(/真实代理、条件分支、循环/)).toBeVisible();
     await user.click(screen.getAllByRole('button', { name: '从起始模板新建' })[0]!);
-    expect(await screen.findByLabelText('工作流名称')).toHaveValue('新的图像工作流');
-    expect(createSpy).toHaveBeenCalledWith(4, expect.objectContaining({ name: '新的图像工作流', nodes: definition.nodes, edges: definition.edges }), expect.any(AbortSignal));
+    expect(await screen.findByLabelText('工作流名称')).toHaveValue(definition.name);
+    expect(createSpy).toHaveBeenCalledWith(4, expect.objectContaining({ name: definition.name, description: definition.description, nodes: definition.nodes, edges: definition.edges }), expect.any(AbortSignal));
     expect(screen.getByLabelText('连线来源')).toBeVisible();
 
     await user.clear(screen.getByLabelText('工作流名称'));
@@ -67,7 +67,7 @@ describe('工作流配置页面', () => {
     expect(saved.edges[0]).not.toHaveProperty('sourceHandle');
 
     await user.click(screen.getByRole('button', { name: '查看修订历史' }));
-    expect(await screen.findByRole('region', { name: '工作流修订历史' })).toHaveTextContent('新的图像工作流');
+    expect(await screen.findByRole('region', { name: '工作流修订历史' })).toHaveTextContent(definition.name);
     expect(historySpy).toHaveBeenCalledWith(created.id, expect.any(AbortSignal));
   });
 

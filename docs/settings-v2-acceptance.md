@@ -32,7 +32,7 @@ Status: implementation delivered and automated/browser checks recorded in `docs/
 2. Runtime stays mode mock with activeImageModel mock-svg, even when draft routes select other models.
 3. API replies expose credential presence per account, not credential values. Raw keys are rejected.
 4. Local transport requires a loopback endpoint. Unsupported CLI transport is not falsely enabled.
-5. The AgnesAI check reads `GNESAI_API_KEY` on the API process only and reports missing key, authorization/connection failure, or readable model count without returning the key or model IDs.
+5. The AgnesAI check reads `AGNES_API_KEY` on the API process only (with legacy `GNESAI_API_KEY` fallback) and reports missing key, authorization/connection failure, or readable model count without returning the key or model IDs.
 
 ## Verification record
 

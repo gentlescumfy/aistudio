@@ -37,8 +37,8 @@ test('role library seeds seven immutable built-ins and an explicitly non-executa
     'scriptwriter', 'storyboard-director', 'continuity-reviewer', 'editor', 'architect', 'developer', 'code-reviewer',
   ]);
   assert.ok(library.roles.every((role: { builtIn: boolean; revision: number; lifecycle: string; modelStatus: string }) => role.builtIn && role.revision === 1 && role.lifecycle === 'published' && role.modelStatus === 'inherit'));
-  assert.equal(library.runtime.enabled, false);
-  assert.equal(library.runtime.mode, 'metadata-only');
+  assert.equal(library.runtime.enabled, true);
+  assert.equal(library.runtime.mode, 'single-turn-text');
   assert.deepEqual(library.tools.map((tool: { id: string }) => tool.id), [
     'assets.read', 'context.search', 'images.generate', 'media.render', 'code.read', 'code.edit', 'code.test',
   ]);
@@ -191,14 +191,14 @@ test('corrupt role history fails startup without overwriting it; a write fault m
   assert.equal((await app.inject('/api/health')).statusCode, 503);
 });
 
-test('OpenAPI documents metadata-only roles, CRUD/revisions and non-executable allowlisted tools', async t => {
+test('OpenAPI documents single-turn text roles, CRUD/revisions and non-executable allowlisted tools', async t => {
   const { app } = await fixture(t);
   const spec = (await app.inject('/api/openapi.json')).json();
   assert.ok(spec.paths['/api/roles'].get && spec.paths['/api/roles'].post);
   assert.ok(spec.paths['/api/roles/{id}'].post);
   assert.ok(spec.paths['/api/roles/{id}/archive'].post);
   assert.ok(spec.paths['/api/roles/{id}/revisions'].get);
-  assert.equal(spec.components.schemas.RoleLibrary.properties.runtime.properties.enabled.const, false);
+  assert.equal(spec.components.schemas.RoleLibrary.properties.runtime.properties.enabled.const, true);
   assert.equal(spec.components.schemas.ToolDeclaration.properties.executable.const, false);
   assert.equal(spec.components.schemas.ToolDeclaration.properties.id.enum.length, 7);
 });

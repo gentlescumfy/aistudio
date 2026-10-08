@@ -74,7 +74,7 @@ test('validation enforces graph topology, safe placeholders, limits and role ann
   const validation = await app.inject({ method: 'POST', url: '/api/workflows/validate', payload: { workflow: valid } });
   assert.equal(validation.statusCode, 200);
   assert.equal(validation.json().valid, true);
-  assert.match(validation.json().warnings.join(' '), /descriptive snapshots only/);
+  assert.match(validation.json().warnings.join(' '), /模板处理/);
 
   const unknownPlaceholder = structuredClone(valid);
   (unknownPlaceholder.nodes.find((node) => node.id === 'brief') as Extract<WorkflowDefinition['nodes'][number], { kind: 'prompt' }>).config.template = '{{prompt}} {{danger}}';

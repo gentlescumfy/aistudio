@@ -14,6 +14,7 @@ import { LangflowService } from './langflow.js';
 import { validateAgnesAi } from './agnesai.js';
 import { langflowRunRequestSchema, saveLangflowConfigSchema } from './langflow-contract.js';
 import { workflowArchiveRequestSchema, workflowDefinitionSchema, workflowMutationSchema, workflowPublishRequestSchema } from './workflow-contract.js';
+import { TextAgentRuntime } from './agent-runtime.js';
 
 export interface AppOptions {
   dataDir: string;
@@ -26,6 +27,8 @@ export interface AppOptions {
   langflowFetch?: typeof fetch;
   /** Tests may inject the provider-catalogue request; production uses Node's fetch. */
   agnesAiFetch?: typeof fetch;
+  /** Tests may inject a non-persistent environment snapshot; production uses process.env. */
+  agnesAiEnvironment?: NodeJS.ProcessEnv;
 }
 const idSchema = z.uuid();
 const noBody = z.strictObject({});
@@ -54,10 +57,16 @@ export async function createApp(options: AppOptions): Promise<FastifyInstance> {
     settingsStore = await SettingsStore.open(options.dataDir);
     const settings = settingsStore;
     const agnesAiFetch = options.agnesAiFetch ?? fetch;
+    const agnesAiEnvironment = options.agnesAiEnvironment ?? process.env;
     roles = await RoleStore.open(options.dataDir);
     workflows = await WorkflowStore.open(options.dataDir);
     langflow = await LangflowService.open(options.dataDir, options.langflowFetch ?? fetch, (message) => app.log.error(message));
-    engine = new RunEngine(store, assets, options.provider ?? new MockProvider(options.mockDelayMs), (error) => app.log.error({ err: error }, 'Executor stopped after storage failure'), workflows);
+    engine = new RunEngine(
+      store, assets, options.provider ?? new MockProvider(options.mockDelayMs),
+      (error) => app.log.error({ err: error }, 'Executor stopped after storage failure'), workflows,
+      (selection, deadlineMs) => settings.resolveTextAgentTarget(selection.kind === 'binding' ? selection.binding : undefined, deadlineMs),
+      new TextAgentRuntime(fetch, process.env),
+    );
     const runs = engine;
     const roleStore = roles;
     const workflowStore = workflows;
@@ -112,7 +121,8 @@ export async function createApp(options: AppOptions): Promise<FastifyInstance> {
     app.setNotFoundHandler((_request, reply) => reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Endpoint not found.' } }));
     app.get('/api/health', async () => {
       runs.assertAvailable(); settings.assertAvailable(); roleStore.assertAvailable(); workflowStore.assertAvailable();
-      return { status: 'ok', mode: 'mock', roleStorage: { available: true, mode: 'metadata-only' }, workflowStorage: { available: true, mode: 'local-file' } };
+      const settingsRuntime = settings.read().runtime;
+      return { status: 'ok', mode: settingsRuntime.mode, roleStorage: { available: true, mode: 'single-turn-text' }, workflowStorage: { available: true, mode: 'local-file' } };
     });
     app.get('/api/templates', async () => ({ templates: [...templates, ...workflowStore.templates()] }));
     app.get('/api/workflows', async () => workflowStore.read());
@@ -150,7 +160,7 @@ export async function createApp(options: AppOptions): Promise<FastifyInstance> {
     });
     app.post('/api/settings/validate-agnesai', async (request) => {
       noBody.parse(request.body === undefined ? {} : request.body);
-      return validateAgnesAi(agnesAiFetch);
+      return validateAgnesAi(agnesAiFetch, agnesAiEnvironment);
     });
     app.get('/api/roles', async () => roleStore.read(resolveRoleModel));
     app.post('/api/roles', { bodyLimit: 64 * 1024 }, async (request, reply) => {

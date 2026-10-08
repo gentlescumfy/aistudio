@@ -1,6 +1,6 @@
 # Role library metadata acceptance
 
-Status: implemented metadata milestone, with observed API/web/browser evidence in `docs/verification.md`. These requirements concern role definitions, not agent execution.
+Status: role-definition CRUD/history has observed evidence in `docs/verification.md`; single-turn text calls were added later and have not yet passed a live provider run. This checklist's broader instance/tool requirements remain future work.
 
 ## API and persistence
 
@@ -15,7 +15,7 @@ Status: implemented metadata milestone, with observed API/web/browser evidence i
 
 ## Actual browser scenarios
 
-1. Navigate through the new 代理角色 link and directly via /#roles; verify the metadata-only execution notice.
+1. Navigate through the new 代理角色 link and directly via /#roles; verify the single-turn text and non-executable-tool notice.
 2. Search/filter built-ins, open a template, verify editor read-only, copy to a new custom draft and save.
 3. Edit persona/contracts and intended tools, configure inherit or a full draft model binding, save and reload.
 4. Inspect revision history to confirm retained earlier persona/contracts.
@@ -26,4 +26,14 @@ Status: implemented metadata milestone, with observed API/web/browser evidence i
 
 ## Handoff evidence
 
-Coordinator records actual API/web test counts, builds, browser results and limitations in docs/verification.md. Agent instance creation, published custom execution, real tool authorization, model calls and team workflows remain unimplemented unless a later milestone explicitly supplies them.
+## Single-turn workflow execution
+
+- An agent-enabled prompt node must resolve a saved role snapshot and a valid OpenAI-compatible text model binding before the run is persisted.
+- The API service, not the web process, resolves the credential environment variable. Secret values never enter the browser or run snapshot.
+- The node records provider/model receipt and assistant text. A dependent prompt or image receives that returned text.
+- Network timeout, cancellation or process interruption after dispatch must not blindly resubmit an unknown paid call.
+- The current live environment is not verified when settings have no provider/model route or the API process is missing its credential.
+
+## Handoff evidence
+
+Coordinator records actual API/web test counts, builds, provider call results and limitations in docs/verification.md. Agent instance creation, real tool authorization and team workflows remain unimplemented unless a later milestone explicitly supplies them.

@@ -1,6 +1,6 @@
 # Settings v2 implementation contract
 
-Scope: ship provider/account/model configuration, legacy metadata migration, and an explicit read-only AgnesAI model-catalogue check. No external model generation, credential-value storage or CLI login is enabled in this milestone.
+Scope: provider/account/model configuration, legacy metadata migration, a read-only AgnesAI catalogue check, and the OpenAI-compatible text route used by explicitly enabled workflow agent nodes. Credential values are not stored or exposed. Image generation remains local mock SVG; CLI login and tools remain unavailable.
 
 ## Ownership
 
@@ -28,7 +28,7 @@ type Response = {
   schemaVersion: 2;
   revision: number;
   settings: Settings;
-  runtime: { mode: 'mock'; activeImageModel: 'mock-svg'; externalProvidersEnabled: false };
+  runtime: { mode: 'mock' | 'mixed'; activeImageModel: 'mock-svg'; externalProvidersEnabled: boolean };
   credentials: { accountId: string; configured: boolean }[];
 };
 ```
@@ -51,14 +51,14 @@ Existing default empty config becomes v2 with empty provider/account/model array
 - Accounts must reference a provider, models an account; externalId must be unique per account.
 - secretEnv uses existing optional uppercase environment-variable-name rule. Reject raw keys/unknown fields.
 - Model capabilities are nonempty, unique declared capability values. Each binding must resolve to the same provider/account/model ownership chain, an enabled account, and matching declared capability (`text` route allows text or code).
-- Credential status returns account IDs and presence only. Never return/persist key values and never call a provider on save.
-- `POST /api/settings/validate-agnesai` explicitly reads `GNESAI_API_KEY` from the API service process and makes one bounded `GET https://apihub.agnes-ai.com/v1/models` request. AgentsRoom agent environment variables are not inherited by this separate process. It returns sanitized status, timestamp and model count only. It never saves settings, exposes the key or sends a generation request. A readable model catalogue does not prove generation permission.
+- Credential status returns account IDs and presence only. Never return/persist key values and never call a provider on save. When creating an agent-enabled run, resolve the selected text binding and require the referenced environment variable in the API process before persisting/scheduling.
+- `POST /api/settings/validate-agnesai` reads `AGNES_API_KEY` (with legacy `GNESAI_API_KEY` fallback) from the API service process and makes one bounded `GET https://apihub.agnes-ai.com/v1/models` request. AgentsRoom agent environment variables are not inherited by this separate process. It returns sanitized status, timestamp and model count only. It never saves settings, exposes the key or sends a generation request. A readable model catalogue does not prove generation permission.
 - Settings save may use a route-specific request body limit of 128KiB; other routes retain 16KiB.
 
 ## Frontend
 
-Reorganize around provider panels, nested account profiles and per-account models. Adding accounts or models is distinct from adding a provider. Support manual model IDs, capability choices, search and pinned models. Keep the AgnesAI environment-key check explicit and separate from manual catalogue configuration; show its read-only scope and the current mock runtime clearly. Show credential presence separately from supplier authentication.
+Reorganize around provider panels, nested account profiles and per-account models. Adding accounts or models is distinct from adding a provider. Support manual model IDs, capability choices, search and pinned models. Keep the AgnesAI environment-key check explicit and separate from manual catalogue configuration; it is read-only and does not test generation. Show credential presence separately from supplier authentication.
 
-Default routing selects full binding, displaying provider/account/model and source (workspace default); image can remain mock or select a draft binding but actual runtime stays mock. Node/project override controls wait for future workflow infrastructure. Delete cascades may remove dependent unsaved draft metadata and clear affected bindings, with explicit confirmation for referenced entities. Preserve revision conflict handling, dirty-navigation protection, loading/error states, responsiveness and active defaultCount behavior.
+Default routing selects a full binding, displaying provider/account/model and source (workspace default); the image route stays local mock SVG. A role may override the text route with its own binding. Only prompt nodes explicitly set to “调用代理角色” issue text requests. Anthropic/Google protocols, image model calls, tool use, cost accounting and automatic capability verification remain unavailable. Delete cascades may remove dependent unsaved metadata and clear affected bindings, with explicit confirmation for referenced entities. Preserve revision conflict handling, dirty-navigation protection, loading/error states, responsiveness and active defaultCount behavior.
 
 Deliver files, tests/build results and known limitations to coordinator via AgentsRoom mailbox. Freeze files after handoff. Root end-to-end tests will be updated for v2 by coordinator.

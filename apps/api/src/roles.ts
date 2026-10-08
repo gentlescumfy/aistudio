@@ -122,7 +122,7 @@ export type RoleLibrary = {
   revision: number;
   roles: Role[];
   tools: typeof toolDefinitions[number][];
-  runtime: { enabled: false; mode: 'metadata-only' };
+  runtime: { enabled: true; mode: 'single-turn-text' };
 };
 
 const BUILTIN_DATE = '2026-01-01T00:00:00.000Z';
@@ -197,7 +197,7 @@ export class RoleStore {
       revision: this.state.revision,
       roles: [...latest.values()].map((role) => ({ ...structuredClone(role), modelStatus: modelStatus(role, resolveBinding) })),
       tools: structuredClone(toolDefinitions) as unknown as RoleLibrary['tools'],
-      runtime: { enabled: false, mode: 'metadata-only' },
+      runtime: { enabled: true, mode: 'single-turn-text' },
     };
   }
 

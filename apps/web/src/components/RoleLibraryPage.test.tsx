@@ -13,7 +13,7 @@ const role = (patch: Partial<Role> = {}): Role => ({
 });
 const customId = '58f6c899-3d50-4f9e-a737-2ad80c9e6817';
 const customDraft = () => role({ id: customId, name: '品牌文案策划', builtIn: false, lifecycle: 'draft' });
-const initialLibrary = (roles: Role[] = [role()]): RoleLibrary => ({ revision: 3, roles, tools: [tool], runtime: { enabled: false, mode: 'metadata-only' } });
+const initialLibrary = (roles: Role[] = [role()]): RoleLibrary => ({ revision: 3, roles, tools: [tool], runtime: { enabled: true, mode: 'single-turn-text' } });
 
 function installRolesApi(initialRoles: Role[] = [role()]) {
   let library = initialLibrary(initialRoles);
@@ -53,7 +53,7 @@ describe('代理角色 metadata 工作流', () => {
   it('搜索内置模板并复制成可编辑的自定义草稿', async () => {
     const fetchMock = installRolesApi(); const user = userEvent.setup(); render(<RoleLibraryPage />);
     expect(await screen.findByRole('heading', { name: '脚本编剧' })).toBeVisible();
-    expect(screen.getByText(/代理运行功能尚未启用/)).toBeVisible();
+    expect(screen.getByText(/代理运行需在工作流节点中显式开启/)).toBeVisible();
     expect(screen.queryByRole('button', { name: /运行角色/ })).not.toBeInTheDocument();
     await user.type(screen.getByRole('searchbox', { name: '搜索角色' }), '脚本编剧');
     await user.click(screen.getByRole('button', { name: '复制为自定义角色' }));

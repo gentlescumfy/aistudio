@@ -4,7 +4,7 @@ export type NodeStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cance
 export interface TemplateNode { id: string; name: string; kind: string }
 export interface Template {
   id: string; name: string; description: string; category: Category;
-  enabled: boolean; nodes: TemplateNode[];
+  enabled: boolean; nodes: TemplateNode[]; agentNodeCount?: number;
   source?: 'builtin' | 'workflow'; workflowRevision?: number;
 }
 export interface Inputs { prompt: string; count: number }
@@ -35,14 +35,14 @@ export interface Role extends RoleDefinition {
   createdAt: string; updatedAt: string; modelStatus: 'inherit' | 'configured' | 'unavailable';
 }
 export interface ToolDeclaration { id: string; name: string; description: string; risk: 'read' | 'generate' | 'write'; executable: false }
-export interface RoleLibrary { revision: number; roles: Role[]; tools: ToolDeclaration[]; runtime: { enabled: false; mode: 'metadata-only' } }
+export interface RoleLibrary { revision: number; roles: Role[]; tools: ToolDeclaration[]; runtime: { enabled: true; mode: 'single-turn-text' } }
 export interface RoleMutationResponse { revision: number; role: Role }
 export interface RoleRevisionsResponse { revisions: Role[] }
 export interface RoleRef { id: string; revision: number }
 export interface WorkflowPosition { x: number; y: number }
 export interface WorkflowNodeBase { id: string; name: string; position: WorkflowPosition }
 export type WorkflowNode =
-  | (WorkflowNodeBase & { kind: 'prompt'; config: { template: string; roleRef: RoleRef | null } })
+  | (WorkflowNodeBase & { kind: 'prompt'; config: { template: string; roleRef: RoleRef | null; executionMode?: 'template' | 'agent' } })
   | (WorkflowNodeBase & { kind: 'image'; config: { width: number; height: number; count: number | null } })
   | (WorkflowNodeBase & { kind: 'export'; config: Record<string, never> });
 export interface WorkflowEdge { id: string; source: string; target: string }
@@ -57,7 +57,7 @@ export interface GraphIssue { code: string; message: string; nodeId?: string; ed
 export interface WorkflowValidation { valid: boolean; issues: GraphIssue[]; warnings: string[] }
 export interface WorkflowLibrary {
   revision: number; workflows: Workflow[]; starterDefinition: WorkflowDefinition;
-  runtime: { mode: 'mock'; executableKinds: ['prompt', 'image', 'export']; agentExecutionEnabled: false };
+  runtime: { mode: 'mixed'; executableKinds: ['prompt', 'image', 'export']; agentExecutionEnabled: true };
 }
 export interface WorkflowMutationResponse { revision: number; workflow: Workflow }
 export interface WorkflowRevisionsResponse { revisions: Workflow[] }
@@ -81,7 +81,7 @@ export interface StudioSettings {
 export interface SettingsResponse {
   schemaVersion: 2;
   revision: number; settings: StudioSettings;
-  runtime: { mode: 'mock'; activeImageModel: 'mock-svg'; externalProvidersEnabled: false };
+  runtime: { mode: 'mock' | 'mixed'; activeImageModel: 'mock-svg'; externalProvidersEnabled: boolean };
   credentials: { accountId: string; configured: boolean }[];
 }
 export type AgnesAiValidationStatus = 'connected' | 'missing_key' | 'unauthorized' | 'forbidden' | 'rate_limited' | 'upstream_error' | 'network_error' | 'invalid_response';
@@ -90,7 +90,8 @@ export interface AgnesAiValidation {
 }
 export interface RunNode extends TemplateNode {
   status: NodeStatus; attempts: number; error?: string | { code?: string; message: string };
-  config?: WorkflowNode['config']; dependsOn?: string[]; outputPrompt?: string;
+  config?: WorkflowNode['config']; dependsOn?: string[]; outputPrompt?: string; agentOutput?: string;
+  agentExecution?: { providerName: string; modelName: string; completedAt: string };
 }
 export interface Asset {
   id: string; runId: string; nodeId: string; name: string; mimeType: string;
@@ -98,8 +99,8 @@ export interface Asset {
 }
 export interface Run {
   id: string; templateId: string; status: RunStatus; inputs: Inputs;
-  createdAt: string; updatedAt: string; mode: 'mock'; nodes: RunNode[]; assets: Asset[];
-  estimatedCost: number; actualCost: number;
+  createdAt: string; updatedAt: string; mode: 'mock' | 'mixed'; nodes: RunNode[]; assets: Asset[];
+  estimatedCost: number | null; actualCost: number | null;
   error?: string | { code?: string; message: string };
   workflowSnapshot?: Workflow; expectedAssetCount?: number;
 }

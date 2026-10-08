@@ -120,6 +120,16 @@ export const settingsSchema = z.strictObject({
 const v2SnapshotSchema = z.strictObject({ schemaVersion: z.literal(2), revision: z.number().int().nonnegative(), settings: settingsSchema });
 export const modelBindingSchema = bindingSchema;
 export type ModelBinding = z.infer<typeof modelBindingSchema>;
+export type AgentModelTarget = {
+  providerId: string;
+  providerName: string;
+  protocol: 'openai-compatible';
+  baseUrl: string;
+  modelId: string;
+  modelName: string;
+  secretEnv: string;
+  deadlineMs: number;
+};
 
 /** The on-disk/API compatibility shape that predates provider/account/model separation. */
 export const legacySettingsSchema = z.strictObject({
@@ -151,7 +161,7 @@ export type SaveSettingsInput = z.infer<typeof saveSettingsSchema>;
 type LegacySettingsInput = z.infer<typeof legacySettingsSchema>;
 type Snapshot = { schemaVersion: 2; revision: number; settings: z.infer<typeof settingsSchema> };
 export type SettingsResponse = Snapshot & {
-  runtime: { mode: 'mock'; activeImageModel: 'mock-svg'; externalProvidersEnabled: false };
+  runtime: { mode: 'mock' | 'mixed'; activeImageModel: 'mock-svg'; externalProvidersEnabled: boolean };
   credentials: { accountId: string; configured: boolean }[];
 };
 
@@ -227,9 +237,10 @@ export class SettingsStore {
   read(): SettingsResponse {
     this.assertAvailable();
     const snapshot = structuredClone(this.state);
+    const externalProvidersEnabled = this.hasUsableDefaultTextRoute(snapshot.settings);
     return {
       ...snapshot,
-      runtime: { mode: 'mock', activeImageModel: 'mock-svg', externalProvidersEnabled: false },
+      runtime: { mode: externalProvidersEnabled ? 'mixed' : 'mock', activeImageModel: 'mock-svg', externalProvidersEnabled },
       credentials: snapshot.settings.accounts.map((account) => ({
         accountId: account.id,
         configured: account.secretEnv !== '' && Boolean(process.env[account.secretEnv]),
@@ -244,6 +255,44 @@ export class SettingsStore {
     const account = settings.accounts.find((item) => item.id === binding.accountId);
     const model = settings.models.find((item) => item.id === binding.modelId);
     return Boolean(provider && account && model && account.providerId === provider.id && account.enabled && model.accountId === account.id && model.capabilities.some((capability) => capability === 'text' || capability === 'code'));
+  }
+
+  resolveTextAgentTarget(binding: ModelBinding | undefined, deadlineMs: number): AgentModelTarget {
+    this.assertAvailable();
+    const selected = binding ?? this.state.settings.routes.text;
+    if (!selected) throw new ApiError(409, 'TEXT_MODEL_NOT_CONFIGURED', '请先在配置中心设置默认文本模型，或为代理角色绑定文本模型。');
+    const { providers, accounts, models } = this.state.settings;
+    const provider = providers.find((item) => item.id === selected.providerId);
+    const account = accounts.find((item) => item.id === selected.accountId);
+    const model = models.find((item) => item.id === selected.modelId);
+    if (!provider || !account || !model || account.providerId !== provider.id || model.accountId !== account.id) {
+      throw new ApiError(409, 'TEXT_MODEL_BINDING_UNAVAILABLE', '文本模型绑定已失效，请检查配置中心中的供应商、账号和模型。');
+    }
+    if (!account.enabled) throw new ApiError(409, 'TEXT_MODEL_ACCOUNT_DISABLED', '代理绑定的模型账号已停用，请在配置中心启用后重试。');
+    if (!model.capabilities.some((capability) => capability === 'text' || capability === 'code')) {
+      throw new ApiError(409, 'TEXT_MODEL_CAPABILITY_REQUIRED', '代理模型需要声明 text 或 code 能力。');
+    }
+    if (provider.protocol !== 'openai-compatible') {
+      throw new ApiError(409, 'AGENT_PROTOCOL_UNSUPPORTED', '当前代理运行时只支持 OpenAI 兼容文本接口。');
+    }
+    if (!account.secretEnv) throw new ApiError(409, 'MODEL_CREDENTIAL_NOT_CONFIGURED', '请在配置中心为模型账号填写服务端密钥环境变量名。');
+    if (!process.env[account.secretEnv]?.trim()) {
+      throw new ApiError(409, 'MODEL_CREDENTIAL_MISSING', `AI Studio API 服务进程中未检测到 ${account.secretEnv}，请配置后重启 API。`);
+    }
+    return {
+      providerId: provider.id, providerName: provider.name, protocol: provider.protocol,
+      baseUrl: provider.baseUrl, modelId: model.externalId, modelName: model.name,
+      secretEnv: account.secretEnv, deadlineMs,
+    };
+  }
+
+  private hasUsableDefaultTextRoute(settings: z.infer<typeof settingsSchema>): boolean {
+    return settings.models.some((model) => {
+      const account = settings.accounts.find((item) => item.id === model.accountId);
+      const provider = account && settings.providers.find((item) => item.id === account.providerId);
+      return Boolean(provider?.protocol === 'openai-compatible' && account?.enabled && account.secretEnv
+        && process.env[account.secretEnv]?.trim() && model.capabilities.some((capability) => capability === 'text' || capability === 'code'));
+    });
   }
 
   save(input: SaveSettingsInput): Promise<SettingsResponse> {

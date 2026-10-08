@@ -2,9 +2,12 @@ import { createHash, randomUUID } from 'node:crypto';
 import { ApiError, findRun, templates, touch, type Inputs, type Run } from './domain.js';
 import type { FileStore } from './store.js';
 import type { AssetStore } from './assets.js';
-import { ProviderOutcomeUnknownError, type Provider } from './provider.js';
+import { ProviderOutcomeUnknownError, type Provider, type ProviderOutput } from './provider.js';
 import type { WorkflowStore } from './workflows.js';
 import type { Workflow } from './workflow-contract.js';
+import { TextAgentRuntime, type AgentCompletion } from './agent-runtime.js';
+import type { Role } from './roles.js';
+import type { AgentModelTarget } from './settings.js';
 
 const unknownOutcome = 'PROVIDER_OUTCOME_UNKNOWN: manual reconciliation required; automatic resubmission disabled.';
 
@@ -18,6 +21,8 @@ export class RunEngine {
     private readonly store: FileStore, private readonly assets: AssetStore,
     private readonly provider: Provider, private readonly logError: (error: unknown) => void,
     private readonly workflows?: WorkflowStore,
+    private readonly resolveAgentTarget?: (selection: Role['modelSelection'], deadlineMs: number) => AgentModelTarget,
+    private readonly textAgent: TextAgentRuntime = new TextAgentRuntime(),
   ) {}
 
   assertAvailable(): void {
@@ -29,7 +34,7 @@ export class RunEngine {
       for (const run of db.runs) {
         if (!['queued', 'running'].includes(run.status)) continue;
         const interrupted = run.nodes.find((node) => node.status === 'running');
-        if (interrupted && this.provider.recovery !== 'safe-local-replay') {
+        if (interrupted && (interrupted.agentTarget || this.provider.recovery !== 'safe-local-replay')) {
           run.status = 'failed'; run.error = unknownOutcome;
           interrupted.status = 'failed'; interrupted.error = unknownOutcome;
         } else {
@@ -62,10 +67,12 @@ export class RunEngine {
         workflow = this.workflows.resolvePublished(templateId, workflowRevision);
       }
       const now = new Date().toISOString();
+      const nodes: Run['nodes'] = workflow ? createWorkflowRunNodes(workflow, inputs, this.resolveAgentTarget) : template!.nodes.map((node) => ({ ...node, kind: node.kind as Run['nodes'][number]['kind'], status: 'pending' as const, attempts: 0 }));
+      const callsAgent = nodes.some((node) => node.agentTarget !== undefined);
       const run: Run = {
         id: randomUUID(), templateId, status: 'queued', inputs,
-        createdAt: now, updatedAt: now, mode: 'mock', assets: [], estimatedCost: 0, actualCost: 0,
-        nodes: workflow ? createWorkflowRunNodes(workflow, inputs) : template!.nodes.map((node) => ({ ...node, kind: node.kind as Run['nodes'][number]['kind'], status: 'pending' as const, attempts: 0 })),
+        createdAt: now, updatedAt: now, mode: callsAgent ? 'mixed' : 'mock', assets: [], estimatedCost: callsAgent ? null : 0, actualCost: callsAgent ? null : 0,
+        nodes,
         ...(workflow ? { workflowSnapshot: workflow, expectedAssetCount: workflow.nodes.filter((node) => node.kind === 'image').reduce((sum, node) => sum + (node.config.count ?? inputs.count), 0) } : {}),
       };
       db.runs.push(run);
@@ -100,7 +107,10 @@ export class RunEngine {
       if (!['queued', 'running'].includes(run.status)) throw new ApiError(409, 'RUN_NOT_CANCELLABLE', 'Only queued or running runs can be cancelled.');
       run.status = 'cancelled'; touch(run);
       for (const node of run.nodes) {
-        if (['pending', 'running'].includes(node.status)) node.status = 'cancelled';
+        if (['pending', 'running'].includes(node.status)) {
+          if (node.status === 'running' && node.agentTarget) node.error = unknownOutcome;
+          node.status = 'cancelled';
+        }
       }
       return run;
     });
@@ -154,9 +164,15 @@ export class RunEngine {
         });
         if (!run || this.stopping || controller.signal.aborted) return;
         const node = run.nodes.find((item) => item.status === 'running')!;
-        let output;
+        let output: ProviderOutput[];
+        let agentCompletion: AgentCompletion | undefined;
         try {
-          output = await this.provider.execute(run, node, controller.signal);
+          if (node.agentTarget) {
+            const role = run.workflowSnapshot?.roleSnapshots.find((item) => item.nodeId === node.id)?.role;
+            if (!role || node.kind !== 'prompt') throw new Error('代理角色快照缺失，无法执行此步骤。');
+            agentCompletion = await this.textAgent.execute(role, node.outputPrompt ?? run.inputs.prompt, node.agentTarget, controller.signal);
+            output = [];
+          } else output = await this.provider.execute(run, node, controller.signal);
         } catch (error) {
           if (this.stopping || controller.signal.aborted) return;
           // Provider failures are distinct from persistence failures and can be retried.
@@ -179,11 +195,21 @@ export class RunEngine {
         await this.store.transaction((db) => {
           const current = findRun(db, id);
           if (current.status !== 'running') return;
-          current.nodes.find((item) => item.id === node.id)!.status = 'succeeded';
+          const completed = current.nodes.find((item) => item.id === node.id)!;
+          completed.status = 'succeeded';
+          if (agentCompletion) {
+            completed.agentOutput = agentCompletion.text;
+            completed.agentExecution = {
+              providerName: agentCompletion.providerName,
+              modelName: agentCompletion.modelName,
+              completedAt: agentCompletion.completedAt,
+            };
+          }
           // IDs and paths are deterministic; interrupted mock writes are safely replaced.
           for (const item of output) {
             if (!current.assets.some((asset) => asset.id === item.asset.id)) current.assets.push(item.asset);
           }
+          propagateNodeOutput(current, completed);
           touch(current);
         });
       }
@@ -198,7 +224,11 @@ export class RunEngine {
   }
 }
 
-function createWorkflowRunNodes(workflow: Workflow, inputs: Inputs): Run['nodes'] {
+function createWorkflowRunNodes(
+  workflow: Workflow,
+  inputs: Inputs,
+  resolveAgentTarget?: (selection: Role['modelSelection'], deadlineMs: number) => AgentModelTarget,
+): Run['nodes'] {
   const indegree = new Map(workflow.nodes.map((node) => [node.id, 0]));
   const outgoing = new Map(workflow.nodes.map((node) => [node.id, [] as string[]]));
   for (const edge of workflow.edges) {
@@ -232,6 +262,12 @@ function createWorkflowRunNodes(workflow: Workflow, inputs: Inputs): Run['nodes'
       const expanded = source.config.template.replace(/{{\s*(prompt|count)\s*}}/g, (_match, key: string) => key === 'prompt' ? value : String(inputs.count));
       if (expanded.length > 16_000) throw new ApiError(400, 'PROMPT_TOO_LARGE', 'Expanded workflow prompt exceeds 16000 characters.');
       node.outputPrompt = expanded;
+      if (source.config.executionMode === 'agent') {
+        const role = workflow.roleSnapshots.find((snapshot) => snapshot.nodeId === source.id)?.role;
+        if (!role) throw new ApiError(409, 'AGENT_ROLE_SNAPSHOT_MISSING', `节点“${source.name}”没有已发布的代理角色快照，请重新发布工作流。`);
+        if (!resolveAgentTarget) throw new ApiError(503, 'AGENT_RUNTIME_UNAVAILABLE', '代理运行时不可用，请重启 AI Studio API。');
+        node.agentTarget = resolveAgentTarget(role.modelSelection, role.limits.deadlineMs);
+      }
     } else if (source.kind === 'image') {
       const parent = dependsOn.length === 1 ? prepared.get(dependsOn[0]!) : undefined;
       if (!parent || parent.kind !== 'prompt' || parent.outputPrompt === undefined) throw new ApiError(400, 'INVALID_WORKFLOW', 'Image dependency has no resolved prompt output.');
@@ -240,4 +276,25 @@ function createWorkflowRunNodes(workflow: Workflow, inputs: Inputs): Run['nodes'
     prepared.set(id, node);
   }
   return order.map((id) => prepared.get(id)!);
+}
+
+function propagateNodeOutput(run: Run, completed: Run['nodes'][number]): void {
+  const text = completed.agentOutput ?? completed.outputPrompt;
+  if (text === undefined) return;
+  for (const dependent of run.nodes.filter((node) => (node.dependsOn ?? []).includes(completed.id))) {
+    if (dependent.kind === 'image') {
+      dependent.outputPrompt = text;
+      continue;
+    }
+    if (dependent.kind !== 'prompt' || !dependent.config || !('template' in dependent.config)) continue;
+    const expanded = dependent.config.template.replace(/{{\s*(prompt|count)\s*}}/g, (_match, key: string) => key === 'prompt' ? text : String(run.inputs.count));
+    if (expanded.length > 16_000) {
+      dependent.status = 'failed';
+      dependent.error = 'PROMPT_TOO_LARGE: 上游代理输出展开后超过 16000 个字符。';
+      run.status = 'failed';
+      run.error = dependent.error;
+      return;
+    }
+    dependent.outputPrompt = expanded;
+  }
 }

@@ -1,14 +1,14 @@
 # Configurable workflow milestone
 
-Status: superseded as the primary workflow entry by the user's Langflow request. This contract describes the retained legacy React Flow/local mock experiment, now covered by regression tests. For actual Langflow integration see langflow-integration-contract.md; the framework statements below apply only to this legacy experiment.
+Status: active contract for AI Studio's primary workflow canvas and persisted run engine. Native Langflow remains a separate workspace, documented in `langflow-integration-contract.md`.
 
 ## Scope and ownership
 
 Implement a persisted visual workflow editor plus actual configuration-driven local mock execution. Frontend owns apps/web; backend owns apps/api; coordinator owns root tests/docs/integration. Keep existing settings, roles and brand-assets runs working. No new agents/QA, no commits/pushes, no shell background servers; existing managed servers watch changes.
 
-Canvas framework: `@xyflow/react` (React Flow12), using controlled nodes/edges, handles, connection validation and saved positions. Official references: https://reactflow.dev/examples/interaction/save-and-restore and https://reactflow.dev/examples/interaction/validation . It is the UI canvas, not the backend engine. Backend extends the existing local persisted executor; no Langflow/Temporal integration is claimed.
+Canvas framework: `@xyflow/react` (React Flow12), using controlled nodes/edges, handles, connection validation and saved positions. It is the UI canvas, not the backend engine. The backend uses its persisted executor; no Langflow/Temporal integration is claimed.
 
-Only prompt/image/export nodes execute, through the local mock adapter. Role references are versioned descriptive annotations, not agent execution or tool grants. No conditional/loop/RAG/API/shell nodes or real media providers are enabled.
+Prompt nodes choose either local template expansion or one real OpenAI-compatible text call using a saved role snapshot. The returned text is persisted and handed to downstream prompt/image nodes. Image and export nodes remain local SVG/asset operations. Role tool references never grant or execute tools. No conditional/loop/RAG/API/shell nodes or external image providers are enabled.
 
 ## Shared types
 
@@ -17,7 +17,7 @@ type RoleRef = { id: string; revision: number };
 type Position = { x: number; y: number };
 type NodeBase = { id: string; name: string; position: Position };
 type WorkflowNode =
-  | (NodeBase & { kind: 'prompt'; config: { template: string; roleRef: RoleRef | null } })
+  | (NodeBase & { kind: 'prompt'; config: { template: string; roleRef: RoleRef | null; executionMode?: 'template' | 'agent' } })
   | (NodeBase & { kind: 'image'; config: { width: number; height: number; count: number | null } })
   | (NodeBase & { kind: 'export'; config: Record<string, never> });
 type WorkflowEdge = { id: string; source: string; target: string };
@@ -33,7 +33,7 @@ type Validation = { valid: boolean; issues: GraphIssue[]; warnings: string[] };
 type WorkflowLibrary = {
   revision: number; workflows: Workflow[];
   starterDefinition: WorkflowDefinition;
-  runtime: { mode: 'mock'; executableKinds: ['prompt','image','export']; agentExecutionEnabled: false };
+  runtime: { mode: 'mixed'; executableKinds: ['prompt','image','export']; agentExecutionEnabled: true };
 };
 ```
 
@@ -45,7 +45,7 @@ Each successful create/edit/publish/archive appends an immutable Workflow revisi
 - POST `/api/workflows`: `{revision, workflow: WorkflowDefinition}`, create UUID workflow draft,201 and `{revision, workflow}`.
 - POST `/api/workflows/:id`: same body, append draft edit,200. Archived409, unknown404, stale catalogue revision409.
 - POST `/api/workflows/validate`: `{workflow: WorkflowDefinition}`,200 with Validation. Does not save, publish or execute.
-- POST `/api/workflows/:id/publish`: `{revision}`, reject graph/reference issues with400 `INVALID_WORKFLOW`; return `{revision, workflow}` for the new published snapshot. Resolve prompt roleRefs to immutable matching role revisions and attach roleSnapshots. Missing or archived referenced role revision is invalid. Current-role archival prevents new publishing; already published annotations remain immutable and runnable mock metadata.
+- POST `/api/workflows/:id/publish`: `{revision}`, reject graph/reference issues with400 `INVALID_WORKFLOW`; return `{revision, workflow}` for the new published snapshot. Resolve prompt roleRefs to immutable matching role revisions and attach roleSnapshots. Agent mode requires a role reference. Missing or archived referenced role revision is invalid. Current-role archival prevents new publishing; already published snapshots remain immutable.
 - POST `/api/workflows/:id/archive`: `{revision}`,200 with `{revision, workflow}`. Preserve run and revision history.
 - GET `/api/workflows/:id/revisions`: `{revisions: Workflow[]}`, ascending revision.
 
@@ -62,7 +62,7 @@ Names trimmed1–80, descriptions1–1000, node/edge IDs lowercase slug1–64, u
 - Prompt template max6000; supports only {{prompt}} and {{count}} (optional whitespace). Unknown placeholders are validation errors; do not eval templates. Prompt parents supply their resolved prompt; root starts from request inputs. Expanded prompt cap16000, enforced before dispatch/storage to avoid amplification.
 - Image width/height integers512–2048; count is null (use request count) or integer1–8. Configuration must affect actual SVG metadata/content size and per-node batch count.
 - Export config is empty and export checks the expected total output count across image nodes.
-- RoleRef identifies an existing non-archived role revision at publish. Role binding does not invoke the persona/model/tools; explicit warning remains visible.
+- RoleRef identifies an existing non-archived role revision at publish. `executionMode:'agent'` invokes its system prompt/contracts plus expanded node task through the resolved text route; `template` keeps the role only as a responsibility reference. An agent step without a role is invalid. Tools remain non-executable.
 - Unknown fields/kinds/tools/URLs/code or raw credentials rejected. Node kind allowlist does not expose shell/API execution.
 
 ## Run integration and snapshot semantics
@@ -77,7 +77,7 @@ expectedAssetCount?: number; // sum(image.config.count ?? inputs.count)
 // optional per RunNode: config, dependsOn:string[], outputPrompt?:string
 ```
 
-History/retry/recovery use only that stored snapshot, never latest workflow or roles. Editing/publishing/archiving workflows cannot retarget an existing run. Preserve successful nodes/assets on retry and existing cancel/unknown-outcome protections. Failed downstream nodes must not execute before dependencies succeed. A corrupt/no-ready-node runtime state must not silently mark success.
+History/retry/recovery use only that stored workflow and role snapshot, never the latest workflow or roles. Editing/publishing/archiving cannot retarget an existing run. Agent target stores provider/model metadata and only an environment-variable reference, never its credential value. A mixed run reports unknown costs rather than zero. Preserve successful nodes/assets on retry and existing cancel/unknown-outcome protections. Failed downstream nodes must not execute before dependencies succeed. A corrupt/no-ready-node runtime state must not silently mark success.
 
 Idempotency remains keyed by the submitted normalized request, including explicit requested workflowRevision if present. A replay with the same key/request returns the original run before consulting today's publication/archive state; a different request/revision conflicts409. Do not include newly resolved latest revision in an implicit replay fingerprint, which would break retries after publishing changes. Legacy brand-assets behavior and filenames remain compatible.
 
@@ -91,7 +91,7 @@ Add `工作流配置` navigation and `/#workflows`. Show library, starter-templa
 
 Actions: save draft, validate, publish, archive, inspect revisions; clear saved/published/draft state and current published pointer. Dirty navigation/refresh confirmation and revision409 preserve user edits. Canvas payload must strip React Flow UI-only fields before API save. Positions and parameters survive reload. Match existing warm themes and320px responsive editor; canvas has a bounded viewport so it does not create document overflow.
 
-Published workflows appear in the existing template picker; users can start a mock run with the same prompt/count form. Send displayed workflowRevision when selecting that template. Show captured workflow revision and expected total asset count in history/results/inspector where available. Existing role/setting/history/theme behaviors must regress cleanly. No button may claim to start a real agent/model.
+Published workflows appear in the existing template picker; users start a run with the same prompt/count form. Send displayed workflowRevision when selecting that template. Show captured workflow revision, agent receipts/outputs and expected total asset count in history/results/inspector where available. Make external text calls and potential supplier cost explicit. Existing role/setting/history/theme behaviors must regress cleanly.
 
 ## Delivery checks
 

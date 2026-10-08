@@ -19,7 +19,7 @@ const workflow: Workflow = {
 };
 const workflowLibrary: WorkflowLibrary = {
   revision: 3, workflows: [workflow], starterDefinition: workflowDefinition,
-  runtime: { mode: 'mock', executableKinds: ['prompt', 'image', 'export'], agentExecutionEnabled: false },
+  runtime: { mode: 'mixed', executableKinds: ['prompt', 'image', 'export'], agentExecutionEnabled: true },
 };
 const langflowConfig: LangflowConfig = { baseUrl: 'http://127.0.0.1:7860', authMode: 'local-development', secretEnv: '', timeoutMs: 30000 };
 const langflowFlow: LangflowFlow = { id: '18b59ef1-65a0-4a92-9b84-57ed19926d5e', name: 'Echo', description: '原生输入输出回显流程。', updatedAt: '2026-10-07T00:00:00.000Z' };

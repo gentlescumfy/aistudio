@@ -1,6 +1,6 @@
 # Agent role architecture
 
-Status: role-library metadata/editor implemented and verified under `docs/role-library-contract.md`; results are recorded in `docs/verification.md`. Agent instances/execution, actual tool authorization and team orchestration are not implemented. Settings v2 is the model-binding foundation, not an agent runtime.
+Status: the role library remains the source of versioned personas and model bindings. The workflow canvas now supports an explicitly enabled, single-turn OpenAI-compatible text call for a role snapshot, and passes the model response to the next node. This is an initial text-only runtime slice, not a general agent platform: tools, instances, memory, loops, branching, team orchestration, usage accounting and image-model execution remain unimplemented. See `docs/scenarios.md` for the real coffee-launch handoff and `docs/verification.md` for the current live configuration blocker.
 
 ## Verified inspiration and adaptation
 
@@ -66,7 +66,7 @@ For an inheriting selection, resolve permitted settings in this order: explicit 
 
 At launch persist an immutable snapshot of role revision, prompt, skills revisions, workflow inputs, resolved model/adapter, credential reference/version, tool policy and budget. Changing defaults or publishing a new role affects future launches only. A missing/disabled referenced account fails with an explicit configuration error; do not silently substitute another wallet for historical retry.
 
-Current settings model capabilities are manual declarations. Agent execution cannot rely on them alone: the executing adapter must support the required operation and model access must be validated before activation.
+Current settings model capabilities are manual declarations. The text adapter independently checks the provider/account/model chain, OpenAI-compatible protocol and API-process credential before accepting a run. A catalogue check does not prove generation access; a successful provider call is the only current proof that this endpoint/model accepts generation requests.
 
 ## Role responsibilities and initial library
 
@@ -124,13 +124,13 @@ Enforce graph validation, per-node retry limits, overall cycle budget, cost cap,
 - Workflow agent node: choose an instance, map inputs, define output contract and verification/approval gates.
 - Runtime panel: actual role revision, model/account, step status, tool attempts, assets, usage and blockers.
 
-Proposed endpoints: `/api/roles`, `/api/roles/:id/revisions`, `/api/roles/:id/publish`, `/api/agent-instances`, and `/api/agent-runs`. Authorization and stable revision contracts must precede enabling these APIs; they are not implemented now.
+The current role library has `/api/roles` and `/api/roles/:id/revisions`; workflow runs use `/api/runs` and snapshot the published workflow plus its role and text-model target. Dedicated agent instances, resumable conversations and `/api/agent-runs` are still proposed, not implemented. Authorization and stable revision contracts must precede adding tools or multi-turn APIs.
 
 ## Delivery phases
 
-1. Read-only role catalogue and versioned draft editor, with explicit no-execution status; metadata does not grant runtime permissions.
-2. Agent instances and resolved model bindings with mock agent runs and schema-validated handoff.
-3. One real text adapter plus restricted non-writing tools, budget/timeout/cancellation and audit.
+1. Read-only role catalogue and versioned draft editor, with explicit no-tool status; metadata does not grant runtime permissions. (Implemented.)
+2. Agent instances and resolved model bindings with mock agent runs and schema-validated handoff. (Not implemented.)
+3. One real text adapter for single-turn workflow nodes, with bounded timeout, durable receipts and unknown-outcome protection. (Initial text-only path implemented; budget enforcement, tools and model cost reporting remain.)
 4. Media generation tool integration and human gates; coding executor only after sandbox isolation.
 5. Team branching, bounded feedback, parallel isolation and production authorization/tenant boundaries.
 

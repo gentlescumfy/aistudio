@@ -1,6 +1,6 @@
 # Role library metadata milestone
 
-Scope: implement a persistent role library and editor, not agent execution. No real model calls, tool execution, CLI login, sandbox or team dispatch is enabled.
+Scope: the original contract implemented a persistent role library/editor. A later extension allows published workflow prompt nodes to invoke a role for one bounded text turn. Tool execution, CLI login, sandbox and team dispatch remain disabled.
 
 ## Ownership
 
@@ -26,11 +26,11 @@ type Role = RoleDefinition & {
 type ToolDeclaration = { id: string; name: string; description: string; risk: 'read' | 'generate' | 'write'; executable: false };
 type RoleLibrary = {
   revision: number; roles: Role[]; tools: ToolDeclaration[];
-  runtime: { enabled: false; mode: 'metadata-only' };
+  runtime: { enabled: true; mode: 'single-turn-text' };
 };
 ```
 
-ModelBinding matches Settings v2. Initial category entries: scriptwriter, storyboard director, continuity reviewer, editor, architect, developer, code reviewer. Built-ins are read-only published templates with stable IDs and descriptive contracts/prompts. Custom copies are drafts and configurable; neither published nor draft metadata can execute.
+ModelBinding matches Settings v2. Initial category entries: scriptwriter, storyboard director, continuity reviewer, editor, architect, developer, code reviewer. Built-ins are read-only published templates with stable IDs. Custom copies are drafts and configurable. A workflow prompt node must explicitly choose “agent” and reference a saved role revision to call it.
 
 Suggested tool catalogue IDs: assets.read, context.search, images.generate, media.render, code.read, code.edit, code.test. All have executable:false; role tool checkboxes describe intended future permissions, not capabilities currently available. No arbitrary shell/API tool identifiers or skill marketplace imports.
 
@@ -46,12 +46,12 @@ All errors retain existing envelope. All writes require the current library revi
 
 Validate trimmed name1–80, description1–1000, systemPrompt1–6000, input/output contract1–4000; tools known/unique; max64 custom roles, built-ins excluded. Limits: maxSteps1–100, maxToolCalls0–1000, deadlineMs1000–3600000, maxCost0–1000 (metadata only). IDs are UUIDs for custom roles; stable built-in slugs permitted in params. Unknown fields rejected. Credential values are never part of role metadata.
 
-Explicit model bindings must resolve through one provider/enabled account/model and a declared text or code capability when creating/editing. Save does not prove actual provider access. If Settings later removes/disables the account/model, return the role's original selection with modelStatus unavailable on reads; do not silently substitute or refuse to load otherwise valid metadata. Inherit remains explicit and is displayed as workspace-default text binding or currently unconfigured; execution remains disabled.
+Explicit model bindings must resolve through one provider/enabled account/model and a declared text or code capability when creating/editing. Save does not prove actual provider access. If Settings later removes/disables the account/model, return the role's original selection with modelStatus unavailable on reads; do not silently substitute or refuse to load otherwise valid metadata. Inherit remains explicit and is displayed as workspace-default text binding or currently unconfigured. An agent-enabled node with no valid text route or API-process secret returns a configuration error before scheduling.
 
 ## Frontend
 
 Add working `代理角色` navigation to `/#roles`. Search/filter role cards by category/source/lifecycle; built-in details are read-only with a `复制为自定义角色` action, custom drafts can create/edit/archive. Editor covers persona, input/output declarations, intended tool permissions, model inheritance/full binding and budgets. Show role revision and unavailable references clearly. Provide saved/conflict/error/empty/loading states, archive confirmation and dirty-navigation protection consistent with settings page. Update heading/breadcrumb/hash behavior without breaking workbench/settings actions or count defaults.
 
-Use existing warm dark/light/system theme and320px layouts. No enabled “run agent” button, no fake login or tool activity. Explicitly label metadata-only library and unimplemented execution/authorization. Model selector uses enabled account text/code models from GET `/api/settings`; no secrets or external discovery calls.
+Use existing warm dark/light/system theme and320px layouts. Do not add a standalone “run agent” button, fake login or tool activity. Explain that workflow nodes invoke a single text turn and role tool declarations do not execute. Model selector uses enabled account text/code models from GET `/api/settings`; no secrets or external discovery calls.
 
 Coordinator browser checks will create/copy/edit/reload/archive a role, inspect retained history, verify draft model binding, dirty-navigation and dark/light/narrow layout. Report stable accessible labels and actual tests/build results, then freeze application files.

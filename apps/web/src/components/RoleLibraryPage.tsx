@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { Archive, BookOpen, Bot, Clock3, Copy, FlaskConical, History, LoaderCircle, Plus, RotateCcw, Save, ShieldAlert, Wrench } from 'lucide-react';
+import { Archive, BookOpen, Bot, Clock3, Copy, History, LoaderCircle, Plus, RotateCcw, Save, ShieldAlert, Wrench } from 'lucide-react';
 import { ApiError, api } from '../api';
 import { bindingValue, emptyRoleDefinition, lifecycleLabels, modelBindingOptions, modelStatusLabel, resolveBinding, roleCategoryLabels, roleCategoryOptions, roleDefinition, toolRiskLabels, validateRoleDefinition } from '../roleUtils';
 import type { Role, RoleCategory, RoleDefinition, RoleLibrary, RoleLifecycle, RoleLimits, SettingsResponse } from '../types';
@@ -209,8 +209,8 @@ export function RoleLibraryPage() {
   const updateLimit = (key: keyof RoleLimits, value: number) => updateDraft(current => ({ ...current, limits: { ...current.limits, [key]: value } }));
 
   return <section className="role-library-page" aria-labelledby="roles-title">
-    <div className="page-heading role-page-heading"><div><div className="eyebrow">可复用角色定义 · 运行功能尚未启用</div><h1 id="roles-title">代理角色</h1><p>浏览内置角色，维护自定义系统提示词、输入输出说明与执行上限。</p></div><span className="mock-badge"><FlaskConical size={13} />仅保存定义</span></div>
-    <div className="role-runtime-note" role="note"><ShieldAlert size={17} /><p><strong>这里只维护角色定义，代理运行功能尚未启用。</strong>工具声明不授予权限；真实模型调用、工具执行与编码沙箱均不可用。</p></div>
+    <div className="page-heading role-page-heading"><div><div className="eyebrow">可复用代理角色 · 单轮文本调用</div><h1 id="roles-title">代理角色</h1><p>维护角色系统提示词、输入输出契约和模型绑定，再在工作流提示词节点中选择“调用代理”。</p></div><span className="mock-badge"><Bot size={13} />支持文本调用</span></div>
+    <div className="role-runtime-note" role="note"><ShieldAlert size={17} /><p><strong>代理运行需在工作流节点中显式开启。</strong>系统提示词与契约会发送到绑定的文本模型；工具声明、编码沙箱和自动预算控制仍未启用。模型费用由供应商计算。</p></div>
     {error && <div className="inline-error role-error" role="alert">{error}{conflict && <button type="button" className="secondary-button" onClick={reloadLatest} disabled={busy}><RotateCcw size={14} />重新加载最新版本</button>}</div>}
     {!library || !settings ? loading ? <p className="role-loading" role="status"><LoaderCircle size={16} className="spin" />正在加载角色库与模型配置…</p> : <div className="role-load-error"><p>角色库或模型配置暂不可用。</p><button className="secondary-button" type="button" onClick={() => void load()}><RotateCcw size={14} />重新连接</button></div> : <>
       <div className="role-toolbar">
@@ -238,7 +238,7 @@ export function RoleLibraryPage() {
               <label className="role-field">角色名称<input required maxLength={80} value={draft.name} onChange={event => updateDraft(current => ({ ...current, name: event.target.value }))} placeholder="例如：品牌文案策划" /><span>{draft.name.length}/80</span></label>
               <label className="role-field">角色分类<select value={draft.category} onChange={event => updateDraft(current => ({ ...current, category: event.target.value as RoleCategory }))}>{roleCategoryOptions.map(item => <option key={item} value={item}>{roleCategoryLabels[item]}</option>)}</select></label>
               <label className="role-field role-field-wide">角色描述<textarea required maxLength={1000} rows={2} value={draft.description} onChange={event => updateDraft(current => ({ ...current, description: event.target.value }))} placeholder="说明这个角色负责什么、适用于哪些任务。" /><span>{draft.description.length}/1000</span></label>
-              <label className="role-field role-field-wide">系统提示词<textarea required maxLength={6000} rows={7} value={draft.systemPrompt} onChange={event => updateDraft(current => ({ ...current, systemPrompt: event.target.value }))} placeholder="描述角色职责、表达方式与工作原则。此内容仅作为角色定义保存。" /><span>{draft.systemPrompt.length}/6000</span></label>
+              <label className="role-field role-field-wide">系统提示词<textarea required maxLength={6000} rows={7} value={draft.systemPrompt} onChange={event => updateDraft(current => ({ ...current, systemPrompt: event.target.value }))} placeholder="描述角色职责、表达方式与工作原则。工作流调用此角色时会作为模型系统提示词。" /><span>{draft.systemPrompt.length}/6000</span></label>
               <label className="role-field">输入契约说明<textarea required maxLength={4000} rows={5} value={draft.inputContract} onChange={event => updateDraft(current => ({ ...current, inputContract: event.target.value }))} placeholder="描述期望输入，不是可执行 JSON Schema。" /><span>{draft.inputContract.length}/4000</span></label>
               <label className="role-field">输出契约说明<textarea required maxLength={4000} rows={5} value={draft.outputContract} onChange={event => updateDraft(current => ({ ...current, outputContract: event.target.value }))} placeholder="描述期望输出，不是可执行 JSON Schema。" /><span>{draft.outputContract.length}/4000</span></label>
             </div>
@@ -257,12 +257,12 @@ export function RoleLibraryPage() {
               </select></label>
               <p className={`role-model-status ${draftBinding && !draftBindingOption ? 'unavailable' : ''}`}>{draft.modelSelection.kind === 'inherit' ? settings.settings.routes.text ? `当前继承：${resolveBinding(settings.settings, settings.settings.routes.text).label}` : '当前工作区尚未配置默认文本路由。' : draftBindingOption ? `保存后角色将指定：${draftBindingOption.label}` : '当前完整绑定已失效。选择新的启用文本/代码模型，或改回工作区默认。'}</p>
             </div>
-            <fieldset className="role-limits-fieldset"><legend>执行上限（仅声明）</legend><div className="role-limits-grid">
+            <fieldset className="role-limits-fieldset"><legend>执行上限</legend><div className="role-limits-grid">
               <label className="role-field">最大步骤数<input aria-label="最大步骤数" type="number" min={1} max={100} step={1} value={Number.isNaN(draft.limits.maxSteps) ? '' : draft.limits.maxSteps} onChange={event => updateLimit('maxSteps', event.target.valueAsNumber)} /></label>
               <label className="role-field">最大工具调用数<input aria-label="最大工具调用数" type="number" min={0} max={1000} step={1} value={Number.isNaN(draft.limits.maxToolCalls) ? '' : draft.limits.maxToolCalls} onChange={event => updateLimit('maxToolCalls', event.target.valueAsNumber)} /></label>
               <label className="role-field">截止时间（毫秒）<input aria-label="截止时间（毫秒）" type="number" min={1000} max={3600000} step={1000} value={Number.isNaN(draft.limits.deadlineMs) ? '' : draft.limits.deadlineMs} onChange={event => updateLimit('deadlineMs', event.target.valueAsNumber)} /></label>
               <label className="role-field">预算上限（¥）<input aria-label="预算上限（¥）" type="number" min={0} max={1000} step={0.01} value={Number.isNaN(draft.limits.maxCost) ? '' : draft.limits.maxCost} onChange={event => updateLimit('maxCost', event.target.valueAsNumber)} /></label>
-            </div><p>这些只是未来运行策略的描述字段；当前不会产生费用或执行限制。</p></fieldset>
+            </div><p>单轮调用会使用截止时间；步骤数、工具调用数和预算上限尚未实现强制控制。</p></fieldset>
             <div className="role-editor-actions"><p role="status">{dirty ? '有未保存的修改' : creating ? '填写草稿内容后保存' : '未修改'}</p><button type="button" className="secondary-button" onClick={cancelEdit} disabled={busy}>取消编辑</button><button type="submit" className="primary-button" disabled={busy || !dirty}>{busy ? <LoaderCircle size={15} className="spin" /> : <Save size={15} />}{creating ? '创建角色草稿' : '保存角色草稿'}</button></div>
           </form> : selected ? <>
             <article className="panel role-detail">
@@ -281,7 +281,7 @@ export function RoleLibraryPage() {
               <div className="role-detail-footer"><span>角色 ID <code>{selected.id}</code></span><button type="button" className="secondary-button" onClick={() => void toggleHistory(selected)} disabled={historyLoading || busy}><History size={14} />{historyRoleId === selected.id ? '隐藏修订历史' : '查看修订历史'}</button></div>
               {historyRoleId === selected.id && <section className="role-history" aria-label="角色修订历史"><h3><Clock3 size={15} />修订历史</h3>{historyLoading ? <p role="status">正在加载历史…</p> : !history?.length ? <p>没有可显示的修订记录。</p> : <ol>{history.map(revision => <li key={`${revision.id}-${revision.revision}`}><details><summary><span>v{revision.revision} · {roleName(revision)}</span><span>{formatDate(revision.updatedAt)}</span><span>{lifecycleLabels[revision.lifecycle]}</span></summary><div className="role-history-content"><p>{revision.description}</p><h4>系统提示词</h4><pre>{revision.systemPrompt}</pre><div className="role-contract-grid"><section><h4>输入</h4><pre>{revision.inputContract}</pre></section><section><h4>输出</h4><pre>{revision.outputContract}</pre></section></div><p>模型：{modelStatusLabel(revision, settings.settings)}</p><p>工具声明：{revision.tools.map(toolId => toolName(toolId, library.tools.find(tool => tool.id === toolId)?.name || toolId)).join('、') || '无'}</p><p>执行上限：{revision.limits.maxSteps} 步 · {revision.limits.maxToolCalls} 次工具调用 · {revision.limits.deadlineMs} 毫秒 · ¥{revision.limits.maxCost}</p></div></details></li>)}</ol>}</section>}
             </article>
-          </> : <div className="panel role-detail-empty"><Bot size={25} /><h2>选择一个角色查看详情</h2><p>内置角色是只读模板；可以复制成自定义草稿，再维护系统提示词、契约和执行上限。</p><span>当前只保存角色定义，不会运行代理或工具。</span></div>}
+          </> : <div className="panel role-detail-empty"><Bot size={25} /><h2>选择一个角色查看详情</h2><p>内置角色是只读模板；可以复制成自定义草稿，再维护系统提示词、契约、模型绑定和执行上限。</p><span>在工作流画布把提示词节点切换为“调用代理”后即可调用。</span></div>}
         </section>
       </div>
     </>}

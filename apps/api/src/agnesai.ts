@@ -39,8 +39,8 @@ export async function validateAgnesAi(
   fetcher: typeof fetch = fetch,
   environment: NodeJS.ProcessEnv = process.env,
 ): Promise<AgnesAiValidation> {
-  const key = environment.GNESAI_API_KEY;
-  if (!key?.trim()) return result('missing_key', 'AI Studio API 服务进程中未检测到 GNESAI_API_KEY。');
+  const key = environment.AGNES_API_KEY?.trim() || environment.GNESAI_API_KEY?.trim();
+  if (!key) return result('missing_key', 'AI Studio API 服务进程中未检测到 AGNES_API_KEY。');
 
   try {
     const response = await fetcher(modelCatalogUrl, {
@@ -50,7 +50,7 @@ export async function validateAgnesAi(
       redirect: 'error',
       cache: 'no-store',
     });
-    if (response.status === 401) return result('unauthorized', 'AgnesAI 返回 HTTP 401：当前密钥未通过认证，请检查代理环境变量。');
+    if (response.status === 401) return result('unauthorized', 'AgnesAI 返回 HTTP 401：API 服务进程中的密钥未通过认证，请检查密钥有效性、账号状态和 API 访问权限。');
     if (response.status === 403) return result('forbidden', 'AgnesAI 返回 HTTP 403：当前密钥没有读取模型目录的权限。');
     if (response.status === 429) return result('rate_limited', 'AgnesAI 暂时限制了请求，请稍后重试。');
     if (!response.ok) return result('upstream_error', `AgnesAI 返回 HTTP ${response.status}，模型目录暂不可用。`);

@@ -59,8 +59,10 @@ const validWorkflowNode = (value: unknown) => {
     || !slug(value.id) || typeof value.name !== 'string' || value.name.trim().length < 1 || value.name.length > 80
     || !record(position) || Object.keys(position).length !== 2 || !['x', 'y'].every(key => typeof position[key] === 'number' && Number.isFinite(position[key]) && Math.abs(position[key] as number) <= 10000)
     || !record(value.config)) return false;
-  if (value.kind === 'prompt') return Object.keys(value.config).length === 2 && Object.keys(value.config).every(key => ['template', 'roleRef'].includes(key))
-    && typeof value.config.template === 'string' && value.config.template.length <= 6000 && (value.config.roleRef === null || validRoleRef(value.config.roleRef));
+  if (value.kind === 'prompt') return Object.keys(value.config).length >= 2 && Object.keys(value.config).length <= 3 && Object.keys(value.config).every(key => ['template', 'roleRef', 'executionMode'].includes(key))
+    && Object.hasOwn(value.config, 'template') && Object.hasOwn(value.config, 'roleRef')
+    && typeof value.config.template === 'string' && value.config.template.length <= 6000 && (value.config.roleRef === null || validRoleRef(value.config.roleRef))
+    && (value.config.executionMode === undefined || value.config.executionMode === 'template' || value.config.executionMode === 'agent');
   if (value.kind === 'image') return Object.keys(value.config).length === 3 && Object.keys(value.config).every(key => ['width', 'height', 'count'].includes(key))
     && Number.isInteger(value.config.width) && (value.config.width as number) >= 512 && (value.config.width as number) <= 2048
     && Number.isInteger(value.config.height) && (value.config.height as number) >= 512 && (value.config.height as number) <= 2048
@@ -91,7 +93,7 @@ const validWorkflowLibrary = (value: unknown): value is WorkflowLibrary => recor
   && value.workflows.every(validWorkflow) && unique(value.workflows.map(workflow => workflow.id))
   && validWorkflowDefinition(value.starterDefinition) && record(value.runtime) && Object.keys(value.runtime).length === 3
   && Object.keys(value.runtime).every(key => ['mode', 'executableKinds', 'agentExecutionEnabled'].includes(key))
-  && value.runtime.mode === 'mock' && JSON.stringify(value.runtime.executableKinds) === JSON.stringify(['prompt', 'image', 'export']) && value.runtime.agentExecutionEnabled === false;
+  && value.runtime.mode === 'mixed' && JSON.stringify(value.runtime.executableKinds) === JSON.stringify(['prompt', 'image', 'export']) && value.runtime.agentExecutionEnabled === true;
 const validWorkflowValidation = (value: unknown): value is WorkflowValidation => record(value) && Object.keys(value).length === 3
   && Object.keys(value).every(key => ['valid', 'issues', 'warnings'].includes(key)) && typeof value.valid === 'boolean'
   && Array.isArray(value.issues) && value.issues.every(issue => record(issue) && Object.keys(issue).every(key => ['code', 'message', 'nodeId', 'edgeId'].includes(key))
@@ -153,7 +155,7 @@ const validRoleLibrary = (value: unknown): value is RoleLibrary => {
     || !Number.isInteger(value.revision) || (value.revision as number) < 0 || !Array.isArray(value.roles) || !value.roles.every(validRole)
     || !unique(value.roles.map(role => role.id)) || !Array.isArray(value.tools) || !value.tools.every(validToolDeclaration)
     || !unique(value.tools.map(tool => tool.id)) || !record(value.runtime) || Object.keys(value.runtime).length !== 2
-    || Object.keys(value.runtime).some(key => !['enabled', 'mode'].includes(key)) || value.runtime.enabled !== false || value.runtime.mode !== 'metadata-only') return false;
+    || Object.keys(value.runtime).some(key => !['enabled', 'mode'].includes(key)) || value.runtime.enabled !== true || value.runtime.mode !== 'single-turn-text') return false;
   const roles = value.roles as Role[];
   const tools = value.tools as ToolDeclaration[];
   return roles.every(role => role.tools.every(toolId => tools.some(tool => tool.id === toolId)));
@@ -214,7 +216,7 @@ export function validateSettingsDraft(settings: StudioSettings): string | null {
 }
 const validNode = (value: unknown) => record(value) && ['id', 'name', 'kind'].every(key => typeof value[key] === 'string');
 const validRun = (value: unknown) => record(value) && typeof value.id === 'string' && typeof value.templateId === 'string'
-  && typeof value.createdAt === 'string' && typeof value.updatedAt === 'string' && value.mode === 'mock'
+  && typeof value.createdAt === 'string' && typeof value.updatedAt === 'string' && ['mock', 'mixed'].includes(value.mode as string)
   && ['queued', 'running', 'succeeded', 'failed', 'cancelled'].includes(value.status as string)
   && record(value.inputs) && typeof value.inputs.prompt === 'string' && typeof value.inputs.count === 'number'
   && Array.isArray(value.nodes) && value.nodes.every(node => validNode(node) && record(node)
@@ -225,7 +227,11 @@ const validRun = (value: unknown) => record(value) && typeof value.id === 'strin
   && (value.expectedAssetCount === undefined || Number.isInteger(value.expectedAssetCount) && (value.expectedAssetCount as number) >= 1 && (value.expectedAssetCount as number) <= 160)
   && value.nodes.every(node => !record(node) || (node.config === undefined || record(node.config))
     && (node.dependsOn === undefined || Array.isArray(node.dependsOn) && node.dependsOn.every(id => typeof id === 'string'))
-    && (node.outputPrompt === undefined || typeof node.outputPrompt === 'string'));
+    && (node.outputPrompt === undefined || typeof node.outputPrompt === 'string')
+    && (node.agentOutput === undefined || typeof node.agentOutput === 'string')
+    && (node.agentExecution === undefined || record(node.agentExecution) && typeof node.agentExecution.providerName === 'string' && typeof node.agentExecution.modelName === 'string' && typeof node.agentExecution.completedAt === 'string'))
+  && (value.estimatedCost === null || typeof value.estimatedCost === 'number')
+  && (value.actualCost === null || typeof value.actualCost === 'number');
 function validPayload(path: string, payload: unknown, body?: unknown): boolean {
   if (!record(payload)) return false;
   if (path === '/api/settings/validate-agnesai') return validAgnesAiValidation(payload);
@@ -253,9 +259,9 @@ function validPayload(path: string, payload: unknown, body?: unknown): boolean {
     && Number.isInteger(payload.revision) && (payload.revision as number) >= 0 && validRole(payload.role);
   if (path === '/api/settings') return Object.keys(payload).every(key => ['schemaVersion', 'revision', 'settings', 'runtime', 'credentials'].includes(key))
     && payload.schemaVersion === 2 && Number.isInteger(payload.revision) && (payload.revision as number) >= 0
-    && validSettings(payload.settings) && record(payload.runtime) && payload.runtime.mode === 'mock'
+    && validSettings(payload.settings) && record(payload.runtime) && ['mock', 'mixed'].includes(payload.runtime.mode as string)
     && Object.keys(payload.runtime).every(key => ['mode', 'activeImageModel', 'externalProvidersEnabled'].includes(key))
-    && payload.runtime.activeImageModel === 'mock-svg' && payload.runtime.externalProvidersEnabled === false
+    && payload.runtime.activeImageModel === 'mock-svg' && typeof payload.runtime.externalProvidersEnabled === 'boolean'
     && Array.isArray(payload.credentials) && payload.credentials.length === (payload.settings as StudioSettings).accounts.length
     && payload.credentials.every(item => record(item) && Object.keys(item).every(key => ['accountId', 'configured'].includes(key))
       && slug(item.accountId) && typeof item.configured === 'boolean'
@@ -268,6 +274,7 @@ function validPayload(path: string, payload: unknown, body?: unknown): boolean {
     && Array.isArray(template.nodes) && template.nodes.every(validNode)
     && (template.source === undefined || template.source === 'builtin' || template.source === 'workflow')
     && (template.workflowRevision === undefined || Number.isInteger(template.workflowRevision) && (template.workflowRevision as number) >= 1)
+    && (template.agentNodeCount === undefined || Number.isInteger(template.agentNodeCount) && (template.agentNodeCount as number) >= 0 && (template.agentNodeCount as number) <= template.nodes.length)
     && (template.source !== 'workflow' || Number.isInteger(template.workflowRevision) && (template.workflowRevision as number) >= 1));
   if (path === '/api/runs' && body === undefined) return Array.isArray(payload.runs) && payload.runs.every(validRun);
   return validRun(payload.run);
@@ -322,7 +329,7 @@ export const api = {
   publishWorkflow: (id: string, revision: number, signal: AbortSignal) => request<WorkflowMutationResponse>(`/api/workflows/${encodeURIComponent(id)}/publish`, signal, { revision }),
   archiveWorkflow: (id: string, revision: number, signal: AbortSignal) => request<WorkflowMutationResponse>(`/api/workflows/${encodeURIComponent(id)}/archive`, signal, { revision }),
   workflowRevisions: (id: string, signal: AbortSignal) => request<WorkflowRevisionsResponse>(`/api/workflows/${encodeURIComponent(id)}/revisions`, signal),
-  health: (signal: AbortSignal) => request<{ status: 'ok'; mode: 'mock' }>('/api/health', signal),
+  health: (signal: AbortSignal) => request<{ status: 'ok'; mode: 'mock' | 'mixed' }>('/api/health', signal),
   templates: (signal: AbortSignal) => request<{ templates: Template[] }>('/api/templates', signal),
   runs: (signal: AbortSignal) => request<{ runs: Run[] }>('/api/runs', signal),
   run: (id: string, signal: AbortSignal) => request<{ run: Run }>(`/api/runs/${encodeURIComponent(id)}`, signal),

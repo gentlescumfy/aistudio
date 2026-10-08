@@ -123,3 +123,26 @@ Actual1.12.5 compatibility was verified: paginated header_flows=true/get_all=fal
 Legacy regression checks cover parameter-driven size/count, immutable publication/run and role-annotation snapshots, archived idempotent replay, invalid graphs and branch asset uniqueness. A final fix propagates each prompt node's outputPrompt to its image node, so template prefixes affect actual SVG output; backend assertions and the full suite passed afterward. Stored runs use the versioned migration/backup strategy documented in the legacy contract.
 
 Remaining boundaries: local auto-login/skip-auth is not production authentication; native node-level cancellation/resume and immutable external graph publication are not implemented. Studio model/role metadata does not automatically execute through Langflow. Real paid providers, video/media processing and production tenant/isolation/billing still require separate implementation and acceptance.
+
+## AgnesAI configuration validation verified on 2026-10-07 at 12:51 UTC
+
+The settings page now has an explicit AgnesAI model-catalogue check. API validation uses only `GET /v1/models`, reads `GNESAI_API_KEY` from the API service process, applies an 8-second timeout, rejects redirects, and returns a sanitized status/model count. It never accepts a key from the browser, stores credentials or sends generation input.
+
+- `npm test` passed API59/59 and Web49/49. New API cases cover missing credentials without a request, successful catalogue parsing, sanitized 401/network errors and the strict validation route. A component case checks success feedback and confirms no browser key field is required.
+- `npm run test:e2e` passed16/16 actual-browser scenarios across appearance, Langflow, roles, settings, studio and workflows.
+- `npm run build` passed both API TypeScript compilation and the Web TypeScript/Vite production build.
+- Manual validation from the agent environment reached AgnesAI but received HTTP401. The local API service did not inherit the agent environment variable and reported `missing_key`; these are separate process environments. No generation request was made.
+
+The model-catalogue check proves only read access to the catalogue. Actual model generation, provider-specific model capability verification and handing the agent's secret into the separate API service remain unimplemented.
+
+## Single-turn text-agent integration recheck on 2026-10-07 at 23:34 UTC
+
+The workflow canvas now has an implemented single-turn OpenAI-compatible text adapter. Agent-enabled prompt nodes use the snapshotted role prompt and model route, persist the response, and pass it to downstream prompt/image nodes. The coffee-launch example contains three real text-agent steps followed by the local SVG image/export steps. Roles can inherit the workspace text route or bind an explicit configured text model.
+
+- Final `npm run build` passed for the API TypeScript build and Web TypeScript/Vite production build; `git diff --check` passed. This recheck did not run automated tests.
+- The live API Settings v2 revision 32 contains the AgnesAI provider, account, `agnes-2.5-flash` model and default text route. The account references `AGNES_API_KEY`, but the API process reports the credential unconfigured and the read-only validation returns `missing_key`.
+- `GET /api/workflows` confirmed the coffee-launch starter has five nodes, including three `executionMode: agent` text prompts followed by one local SVG image and one export step. It was created and published as `咖啡新品上市视觉全流程` for this run attempt.
+- A prior agent-shell `GET /v1/models` returned 200 with 12 model IDs, while a minimal `POST /v1/chat/completions` returned HTTP 401 `Invalid token`; catalogue access is not proof of generation permission. In the current recheck neither `AGNES_API_KEY` nor the legacy `GNESAI_API_KEY` is present in the agent shell.
+- Submitting the published coffee workflow returned HTTP 409 `MODEL_CREDENTIAL_MISSING` before creating a run. No provider generation request was made. The corrected variable name has not reached the running API process; set a valid `AGNES_API_KEY` there and restart the API before retrying.
+
+This recheck confirms the initial runtime implementation and its configuration locations, not live provider acceptance. AgnesAI's official integration reference specifies the OpenAI-compatible base URL and bearer authentication; the current 401 points to credential/account access, not a need to change the API route. See the [official AgnesAI model catalog](https://github.com/AgnesAI-Labs/AgnesAI-Models/blob/main/MODEL_CATALOG.md) and [official troubleshooting guide](https://github.com/AgnesAI-Labs/AgnesAI-Models/blob/main/docs/TROUBLESHOOTING.md).
