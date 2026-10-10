@@ -50,7 +50,7 @@ describe('工作流配置页面', () => {
     const historySpy = vi.spyOn(api, 'workflowRevisions').mockResolvedValue({ revisions: [created] } as WorkflowRevisionsResponse);
     render(<WorkflowConfigPage />);
 
-    expect(await screen.findByText(/真实代理、条件分支、循环/)).toBeVisible();
+    expect(await screen.findByText('单轮文本代理')).toBeVisible();
     await user.click(screen.getAllByRole('button', { name: '从起始模板新建' })[0]!);
     expect(await screen.findByLabelText('工作流名称')).toHaveValue(definition.name);
     expect(createSpy).toHaveBeenCalledWith(4, expect.objectContaining({ name: definition.name, description: definition.description, nodes: definition.nodes, edges: definition.edges }), expect.any(AbortSignal));

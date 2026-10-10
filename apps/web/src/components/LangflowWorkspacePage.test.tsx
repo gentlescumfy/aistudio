@@ -91,4 +91,24 @@ describe('Langflow 工作区', () => {
     expect(await screen.findByText(/配置版本已变化/)).toBeVisible();
     expect(address).toHaveValue('http://localhost:7860');
   });
+
+  it('为运行中或排队中的任务显示取消按钮，点击时调用 cancelLangflowRun 并更新状态', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, 'langflowStatus').mockResolvedValue({ connected: true, version: '1.12.5', editorUrl: config.baseUrl, authMode: config.authMode, message: 'Langflow 已连接。' });
+    const running = run({ id: 'run-running-1', input: 'long running job', status: 'running', output: null, error: null });
+    const cancelled = run({ id: 'run-running-1', input: 'long running job', status: 'cancelled', output: null, error: 'Run cancelled by user request.' });
+    vi.spyOn(api, 'langflowRuns').mockResolvedValue({ runs: [running] });
+    const cancelSpy = vi.spyOn(api, 'cancelLangflowRun').mockResolvedValue({ run: cancelled });
+
+    render(<LangflowWorkspacePage />);
+    await screen.findByText('Langflow 已连接');
+    await waitFor(() => expect(screen.getAllByText('运行中').length).toBeGreaterThan(0));
+
+    const cancelButton = screen.getByRole('button', { name: '取消运行' });
+    expect(cancelButton).toBeVisible();
+
+    await user.click(cancelButton);
+    expect(cancelSpy).toHaveBeenCalledWith('run-running-1', expect.any(AbortSignal));
+    await waitFor(() => expect(screen.getAllByText('已取消').length).toBeGreaterThan(0));
+  });
 });

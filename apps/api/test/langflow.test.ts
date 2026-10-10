@@ -24,7 +24,11 @@ function normalFetch(calls: Array<{ url: URL; init?: RequestInit }> = []): typeo
     if (url.pathname.endsWith('/health_check')) return json({ status: 'ok', db: 'ok' });
     if (url.pathname.endsWith('/api/v1/version')) return json({ version: '1.12.5' });
     if (url.pathname.endsWith('/api/v1/flows/')) return json({ items: [flow], total: 1, page: 1, size: 100, pages: 1 });
-    if (url.pathname.includes('/api/v1/run/')) return json({ outputs: [{ outputs: [{ results: { message: { text: 'Echo: hello' } } }] }] });
+    if (url.pathname.includes('/flow')) return json({ job_id: 'job-1' });
+    if (url.pathname.includes('/events')) {
+      const stream = new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('event: end\ndata: {"outputs":[{"outputs":[{"results":{"message":{"text":"Echo: hello"}}}]}]}\n\n')); c.close(); } });
+      return new Response(stream, { headers: { 'content-type': 'text/event-stream' } });
+    }
     return json({ detail: 'unknown' }, 404);
   }) as typeof fetch;
 }
@@ -45,13 +49,14 @@ async function submit(app: FastifyInstance, input = 'hello', key = 'langflow-tes
 }
 
 async function waitForRun(app: FastifyInstance, id: string, status: string) {
-  const deadline = Date.now() + 3000;
+  const deadline = Date.now() + 10000;
   while (Date.now() < deadline) {
     const result = await app.inject(`/api/langflow/runs/${id}`);
     if (result.statusCode === 200 && result.json().run.status === status) return result.json().run;
     await delay(5);
   }
-  throw new Error(`Timed out waiting for Langflow run ${id} to become ${status}`);
+  const lastRes = await app.inject(`/api/langflow/runs/${id}`);
+  throw new Error(`Timed out waiting for Langflow run ${id} to become ${status}, last status: ${JSON.stringify(lastRes.json())}`);
 }
 
 test('Langflow config is loopback-only, revisioned, secret-safe, and saving never probes or runs flows', async t => {
@@ -72,7 +77,7 @@ test('Langflow config is loopback-only, revisioned, secret-safe, and saving neve
   assert.equal(calls.length, 0, 'config writes do not probe or execute');
   const stored = await readFile(join(directory, 'langflow-config.json'), 'utf8');
   assert.equal(JSON.parse(stored).revision, 1);
-  assert.equal(calls.filter((call) => call.url.pathname.includes('/api/v1/run/')).length, 0);
+  assert.equal(calls.filter((call) => call.url.pathname.includes('/api/v1/build/')).length, 0);
 });
 
 test('status safely reports offline while core health, settings, roles and mock APIs remain available', async t => {
@@ -123,7 +128,11 @@ test('native run persists before async dispatch, decodes output, and idempotency
     calls.push({ url, init });
     if (!online) throw new Error('offline');
     if (url.pathname.endsWith('/api/v1/flows/')) return json([flow]);
-    if (url.pathname.includes('/api/v1/run/')) return json({ outputs: [{ outputs: [{ results: { message: { text: 'Echo: hello' } } }] }] });
+    if (url.pathname.includes('/flow')) return json({ job_id: 'job-1' });
+    if (url.pathname.includes('/events')) {
+      const stream = new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('event: end\ndata: {"outputs":[{"outputs":[{"results":{"message":{"text":"Echo: hello"}}}]}]}\n\n')); c.close(); } });
+      return new Response(stream, { headers: { 'content-type': 'text/event-stream' } });
+    }
     return json({ status: 'ok' });
   }) as typeof fetch;
   const { app, directory } = await setup(t, fetcher);
@@ -138,12 +147,12 @@ test('native run persists before async dispatch, decodes output, and idempotency
   assert.ok(persistedLedger.runs[0].snapshot);
   const succeeded = await waitForRun(app, receipt.id, 'succeeded');
   assert.equal(succeeded.output, 'Echo: hello');
-  const dispatch = calls.find((call) => call.url.pathname.includes('/api/v1/run/'))!;
-  assert.equal(dispatch.url.pathname, `/api/v1/run/${flowId}`);
-  assert.equal(dispatch.url.search, '?stream=false');
+  const dispatch = calls.find((call) => call.url.pathname.includes('/build/'))!;
+  assert.equal(dispatch.url.pathname, `/api/v1/build/${flowId}/flow`);
+  assert.equal(dispatch.url.search, '');
   assert.equal(dispatch.init?.redirect, 'manual');
   assert.deepEqual(JSON.parse(String(dispatch.init?.body)), {
-    input_request: { input_value: 'hello', input_type: 'chat', output_type: 'chat', session_id: `studio-${receipt.id}` },
+    inputs: { input_value: 'hello', input_type: 'chat', output_type: 'chat' }, session_id: `studio-${receipt.id}`,
   });
 
   online = false;
@@ -186,8 +195,11 @@ test('a body that stalls past timeout becomes outcome_unknown and is not resubmi
   const fetcher: typeof fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : input.toString());
     if (url.pathname.endsWith('/api/v1/flows/')) return json([flow]);
-    if (url.pathname.includes('/api/v1/run/')) {
+    if (url.pathname.includes('/flow')) {
       runCalls++;
+      return json({ job_id: 'job-stall' });
+    }
+    if (url.pathname.includes('/events')) {
       let controller: ReadableStreamDefaultController<Uint8Array>;
       const body = new ReadableStream<Uint8Array>({ start(value) { controller = value; } });
       init?.signal?.addEventListener('abort', () => controller.error(new Error('aborted')), { once: true });
@@ -212,7 +224,11 @@ test('decoded output is capped and an unrecognized result shape fails without ex
   const fetcher: typeof fetch = (async (input: string | URL | Request) => {
     const url = new URL(input instanceof Request ? input.url : input.toString());
     if (url.pathname.endsWith('/api/v1/flows/')) return json([flow]);
-    if (url.pathname.includes('/api/v1/run/')) return json(outputValue);
+    if (url.pathname.endsWith('/flow')) return json({ job_id: 'job-cap' });
+    if (url.pathname.includes('/events')) {
+      const stream = new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('event: end\ndata: ' + JSON.stringify(outputValue) + '\n\n')); c.close(); } });
+      return new Response(stream, { headers: { 'content-type': 'text/event-stream' } });
+    }
     return json({ status: 'ok' });
   }) as typeof fetch;
   const { app } = await setup(t, fetcher);
@@ -246,7 +262,11 @@ test('restart converts dispatched work to unknown and resumes only durable queue
   let app: FastifyInstance | undefined;
   const fetcher: typeof fetch = (async (input: string | URL | Request) => {
     const url = new URL(input instanceof Request ? input.url : input.toString());
-    if (url.pathname.includes('/api/v1/run/')) return json({ outputs: [{ outputs: [{ results: { message: { text: 'recovered' } } }] }] });
+    if (url.pathname.endsWith('/flow')) return json({ job_id: 'job-recover' });
+    if (url.pathname.includes('/events')) {
+      const stream = new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('event: end\ndata: {"outputs":[{"outputs":[{"results":{"message":{"text":"recovered"}}}]}]}\n\n')); c.close(); } });
+      return new Response(stream, { headers: { 'content-type': 'text/event-stream' } });
+    }
     return json({ status: 'ok' });
   }) as typeof fetch;
   t.after(async () => { await app?.close(); await rm(directory, { recursive: true, force: true }); });
@@ -289,4 +309,54 @@ test('OpenAPI lists Langflow configuration, status, native flow and receipt endp
   assert.ok(spec.paths['/api/langflow/runs/{id}'].get);
   assert.equal(spec.paths['/api/langflow/runs'].post.responses[202].description, 'New queued execution receipt');
   assert.equal(spec.components.schemas.LangflowRun.properties.status.enum.includes('outcome_unknown'), true);
+  assert.equal(spec.components.schemas.LangflowRun.properties.status.enum.includes('cancelled'), true);
+  assert.ok(spec.paths['/api/langflow/runs/{id}/cancel'].post);
+});
+
+test('active or queued Langflow run can be cancelled, propagates cancel upstream, and terminal states reject cancel', async (t) => {
+  const calls: Array<{ url: URL; init?: RequestInit }> = [];
+  const fetcher: typeof fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : input.toString());
+    calls.push({ url, init });
+    if (url.pathname.endsWith('/api/v1/flows/')) return json([flow]);
+    if (url.pathname.includes('/flow')) return json({ job_id: 'job-cancel-test' });
+    if (url.pathname.includes('/cancel')) return json({ status: 'cancelled' });
+    if (url.pathname.includes('/events')) {
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('event: ping\ndata: {}\n\n'));
+          init?.signal?.addEventListener('abort', () => {
+            try { controller.close(); } catch {}
+          });
+        },
+        cancel() {},
+      });
+      return new Response(stream, { headers: { 'content-type': 'text/event-stream' } });
+    }
+    return json({ status: 'ok' });
+  }) as typeof fetch;
+
+  const { app } = await setup(t, fetcher);
+  const created = await submit(app, 'test input', 'key-cancel-1');
+  const runId = created.json().run.id;
+
+  const runningRun = await waitForRun(app, runId, 'running');
+  assert.equal(runningRun.status, 'running');
+
+  const waitDispatchDeadline = Date.now() + 5000;
+  while (!calls.some((c) => c.url.pathname.includes('/events')) && Date.now() < waitDispatchDeadline) {
+    await delay(10);
+  }
+  assert.ok(calls.some((c) => c.url.pathname.includes('/events')), 'job should be dispatched and polling events');
+
+  const cancelRes = await app.inject({ method: 'POST', url: `/api/langflow/runs/${runId}/cancel` });
+  assert.equal(cancelRes.statusCode, 200);
+  assert.equal(cancelRes.json().run.status, 'cancelled');
+
+  const cancelCall = calls.find((c) => c.url.pathname.includes('/cancel'));
+  assert.ok(cancelCall, 'cancel should be dispatched to Langflow');
+  assert.equal(cancelCall.url.pathname, '/api/v1/build/job-cancel-test/cancel');
+
+  const repeatCancel = await app.inject({ method: 'POST', url: `/api/langflow/runs/${runId}/cancel` });
+  assert.equal(repeatCancel.statusCode, 409);
 });

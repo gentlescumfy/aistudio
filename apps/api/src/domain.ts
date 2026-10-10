@@ -28,6 +28,19 @@ const nodeSchema = z.strictObject({
   }).optional(),
   agentOutput: z.string().max(16_000).optional(),
   agentExecution: z.strictObject({ providerName: z.string().min(1).max(80), modelName: z.string().min(1).max(80), completedAt: z.iso.datetime() }).optional(),
+  handoffPackage: z.strictObject({
+    sourceNodeId: z.string(),
+    roleName: z.string().optional(),
+    summary: z.string(),
+    directive: z.string(),
+    artifacts: z.array(z.string()).default([]),
+    metrics: z.strictObject({
+      steps: z.number().int().nonnegative(),
+      cost: z.number().nonnegative(),
+      durationMs: z.number().int().nonnegative().optional(),
+    }).optional(),
+    createdAt: z.string().datetime(),
+  }).optional(),
 });
 export const assetSchema = z.strictObject({
   id: z.string().regex(/^[a-f0-9]{24}$/), runId: z.uuid(), nodeId: z.string(),

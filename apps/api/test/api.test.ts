@@ -8,7 +8,7 @@ import type { Run } from '../src/domain.js';
 
 test('health, template visibility, specification and JSON errors', async (t) => {
   const { app } = await fixture(t);
-  assert.deepEqual((await app.inject('/api/health')).json(), { status: 'ok', mode: 'mock', roleStorage: { available: true, mode: 'single-turn-text' }, workflowStorage: { available: true, mode: 'local-file' } });
+  assert.deepEqual((await app.inject('/api/health')).json(), { status: 'ok', mode: 'mock', projectId: 'default', roleStorage: { available: true, mode: 'single-turn-text' }, workflowStorage: { available: true, mode: 'local-file' } });
   const templates = (await app.inject('/api/templates')).json().templates;
   assert.equal(templates.length, 3);
   assert.deepEqual(templates.map((item: { enabled: boolean }) => item.enabled), [true, false, false]);
@@ -132,7 +132,16 @@ test('file serving rejects traversal, unregistered assets and symlinks', async (
   ]) assert.ok((await app.inject(url)).statusCode >= 400, url);
   const asset = completed.assets[0]!;
   const path = join(directory, 'assets', run.id, `${asset.id}.svg`);
-  await unlink(path); await symlink(join(directory, 'runs.json'), path);
+  await unlink(path);
+  try {
+    await symlink(join(directory, 'runs.json'), path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EPERM' && process.platform === 'win32') {
+      t.skip('Symlink creation requires elevated privileges on Windows');
+      return;
+    }
+    throw error;
+  }
   const response = await app.inject(asset.url);
   assert.equal(response.statusCode, 404);
   assert.ok(!response.body.includes('submissions'));

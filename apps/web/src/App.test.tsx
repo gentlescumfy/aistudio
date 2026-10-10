@@ -16,7 +16,7 @@ describe('中文工作台用户流程', () => {
     const fetchMock = installApi(); const user = userEvent.setup(); render(<App />);
     const submit = screen.getByRole('button', { name: '开始创作' });
     await waitFor(() => expect(submit).toBeEnabled());
-    expect(screen.getByText('模拟演示', { exact: true })).toBeVisible();
+    expect(screen.getByText('工作流运行', { exact: true })).toBeVisible();
     expect(screen.getByRole('button', { name: /视频创作/ })).toBeDisabled();
     expect(screen.getByRole('button', { name: /编码助手/ })).toBeDisabled();
     await user.click(submit); expect(screen.getByRole('alert')).toHaveTextContent('请描述');

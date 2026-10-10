@@ -211,15 +211,13 @@ export function validateWorkflow(definition: WorkflowDefinition, resolveRole: Ro
     const pair = `${edge.source}\u0000${edge.target}`;
     if (pairs.has(pair)) add('DUPLICATE_EDGE', `Duplicate connection ${edge.source} → ${edge.target}.`, target.id, edge.id);
     pairs.add(pair); incoming.get(target.id)!.push(edge); outgoing.get(source.id)!.push(edge);
-    const allowed = (source.kind === 'prompt' && target.kind === 'prompt') || (source.kind === 'prompt' && target.kind === 'image') || (source.kind === 'image' && target.kind === 'export');
+    const allowed = (source.kind === 'prompt' && target.kind === 'prompt') || (source.kind === 'prompt' && target.kind === 'image') || (source.kind === 'image' && target.kind === 'export') || (source.kind === 'prompt' && target.kind === 'export');
     if (!allowed) add('INVALID_EDGE_KIND', `Connection ${source.kind} → ${target.kind} is not allowed.`, target.id, edge.id);
   }
-  const roots = nodes.filter((node) => node.kind === 'prompt' && incoming.get(node.id)!.length === 0);
-  const exports = nodes.filter((node) => node.kind === 'export' && outgoing.get(node.id)!.length === 0);
-  const images = nodes.filter((node) => node.kind === 'image');
-  if (roots.length !== 1) add('ROOT_COUNT', 'A published workflow must have exactly one root prompt node.');
-  if (exports.length !== 1) add('EXPORT_COUNT', 'A published workflow must have exactly one terminal export node.');
-  if (!images.length) add('IMAGE_REQUIRED', 'A published workflow must include at least one image node.');
+  const roots = nodes.filter((node) => incoming.get(node.id)!.length === 0);
+  const terminals = nodes.filter((node) => outgoing.get(node.id)!.length === 0);
+  if (!roots.length) add('ROOT_REQUIRED', 'A published workflow must have at least one root node with no incoming connection.');
+  if (!terminals.length) add('TERMINAL_REQUIRED', 'A published workflow must have at least one terminal node with no outgoing connection.');
   for (const node of nodes) {
     const ins = incoming.get(node.id)!;
     if (node.kind === 'prompt') {
@@ -238,8 +236,8 @@ export function validateWorkflow(definition: WorkflowDefinition, resolveRole: Ro
       }
     } else if (node.kind === 'image') {
       if (ins.length !== 1 || byId.get(ins[0]?.source ?? '')?.kind !== 'prompt') add('IMAGE_PROMPT_PARENT', 'Each image node must receive exactly one prompt parent.', node.id);
-    } else if (ins.length < 1 || ins.some((edge) => byId.get(edge.source)?.kind !== 'image')) {
-      add('EXPORT_IMAGE_PARENTS', 'The export node must receive one or more image parents.', node.id);
+    } else if (ins.length < 1) {
+      add('EXPORT_PARENT_REQUIRED', 'The export node must receive at least one parent.', node.id);
     }
   }
   const indegree = new Map(nodes.map((node) => [node.id, incoming.get(node.id)!.filter((edge) => byId.has(edge.source)).length]));
@@ -255,7 +253,7 @@ export function validateWorkflow(definition: WorkflowDefinition, resolveRole: Ro
     }
   }
   if (topological.length !== nodes.length) add('CYCLE', 'Workflow graph must be acyclic.');
-  if (roots.length === 1 && exports.length === 1) {
+  if (roots.length && terminals.length) {
     const walk = (start: string, map: Map<string, typeof definition.edges>, direction: 'source' | 'target') => {
       const seen = new Set<string>(); const pending = [start];
       while (pending.length) {
@@ -266,9 +264,15 @@ export function validateWorkflow(definition: WorkflowDefinition, resolveRole: Ro
       }
       return seen;
     };
-    const fromRoot = walk(roots[0]!.id, outgoing, 'target');
-    const toExport = walk(exports[0]!.id, incoming, 'source');
-    for (const node of nodes) if (!fromRoot.has(node.id) || !toExport.has(node.id)) add('DISCONNECTED_NODE', `Node ${node.name} is not on a path from the root prompt to export.`, node.id);
+    const reachable = new Set<string>();
+    for (const root of roots) for (const id of walk(root.id, outgoing, 'target')) reachable.add(id);
+    const toTerminal = new Set<string>();
+    for (const terminal of terminals) for (const id of walk(terminal.id, incoming, 'source')) toTerminal.add(id);
+    for (const node of nodes) {
+      const connected = incoming.get(node.id)!.length > 0 || outgoing.get(node.id)!.length > 0;
+      if (!connected && nodes.length > 1) add('DISCONNECTED_NODE', `Node ${node.name} is not connected to any other node.`, node.id);
+      else if (!reachable.has(node.id) || !toTerminal.has(node.id)) add('DISCONNECTED_NODE', `Node ${node.name} is not on a path from a root node to a terminal node.`, node.id);
+    }
   }
   const roleCount = nodes.filter((node) => node.kind === 'prompt' && node.config.roleRef).length;
   const agentCount = nodes.filter((node) => node.kind === 'prompt' && node.config.executionMode === 'agent').length;

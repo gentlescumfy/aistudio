@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { AlertCircle, CheckCircle2, CircleHelp, Clock3, ExternalLink, LoaderCircle, PlugZap, RefreshCw, Save, Send, Workflow as WorkflowIcon } from 'lucide-react';
+import { AlertCircle, CheckCircle2, CircleHelp, Clock3, ExternalLink, LoaderCircle, PlugZap, RefreshCw, Save, Send, Workflow as WorkflowIcon, XCircle } from 'lucide-react';
 import { ApiError, api } from '../api';
 import { isLangflowRunActive, langflowRunStatusDescription, langflowRunStatusLabel, safeEditorHref, validateLangflowConfig, validateLangflowInput } from '../langflowUtils';
 import type { LangflowConfig, LangflowConfigResponse, LangflowFlow, LangflowRun, LangflowStatus } from '../types';
@@ -251,6 +251,21 @@ export function LangflowWorkspacePage() {
     } finally { if (!controller.signal.aborted) setSubmitting(false); }
   };
 
+  const cancelRun = async (id: string) => {
+    if (!status?.connected || busy) return;
+    const controller = new AbortController(); writeController.current = controller;
+    setSubmitting(true); setHistoryError(null);
+    try {
+      const response = await api.cancelLangflowRun(id, controller.signal);
+      if (controller.signal.aborted) return;
+      setRuns(current => [response.run, ...current.filter(run => run.id !== response.run.id)]);
+      setSelectedRunId(response.run.id);
+    } catch (failure) {
+      if (controller.signal.aborted) return;
+      setHistoryError(errorText(failure, '取消 Langflow 运行失败。'));
+    } finally { if (!controller.signal.aborted) setSubmitting(false); }
+  };
+
   const statusClass = (run: LangflowRun) => `langflow-run-status status-${run.status.replace('_', '-')}`;
 
   return <section className="langflow-workspace" aria-labelledby="langflow-title">
@@ -313,6 +328,7 @@ export function LangflowWorkspacePage() {
         {selectedRun && <article className="langflow-run-detail" aria-label="运行结果详情">
           <div className="langflow-run-detail-heading"><div><h3>{selectedRun.flowName}</h3><span className={statusClass(selectedRun)}>{langflowRunStatusLabel[selectedRun.status]}</span></div><small>{dateLabel(selectedRun.updatedAt)}</small></div>
           <p className="langflow-run-description">{langflowRunStatusDescription[selectedRun.status]}</p>
+          {isLangflowRunActive(selectedRun.status) && <div className="langflow-run-actions"><button type="button" className="secondary-button" onClick={() => void cancelRun(selectedRun.id)} disabled={busy}>{submitting ? <LoaderCircle size={14} className="spin" /> : <XCircle size={14} />}取消运行</button></div>}
           <div className="langflow-run-input"><strong>提交输入</strong><p>{selectedRun.input}</p></div>
           {selectedRun.status === 'succeeded' ? <div className="langflow-run-output"><strong>Langflow 输出</strong><pre>{selectedRun.output ?? '流程已完成，但没有返回可显示的文本输出。'}</pre></div> : selectedRun.error && <div className="inline-error" role="alert">{selectedRun.error}</div>}
           {selectedRun.status === 'outcome_unknown' && <p className="langflow-unknown-note"><CircleHelp size={15} />执行结果未知，不提供重试或取消操作。</p>}

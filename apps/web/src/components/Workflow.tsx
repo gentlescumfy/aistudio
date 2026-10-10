@@ -48,6 +48,15 @@ export function Workflow({ run, template }: { run?: Run; template?: Template }) 
             <div className="workflow-node-heading"><span className="node-step">步骤 {String(index + 1).padStart(2, '0')}</span><span className={`workflow-owner-tag ${role ? 'is-role' : 'is-tool'}`}><AgentIcon size={12} />{role ? isAgent ? '实际调用代理' : '角色职责模板' : '执行步骤'}</span></div>
             {role && <strong className="workflow-role-name">{roleNames[role.id] || role.name} · v{role.revision}</strong>}
             <strong>{node.name}</strong>
+            {node.handoffPackage && <div className="workflow-handoff-card" style={{ background: 'var(--surface-sunken)', padding: '8px 12px', borderRadius: '6px', marginTop: '8px', border: '1px solid var(--border-subtle)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px', color: 'var(--accent-text)' }}>
+                <strong>交接指令与行动指南</strong>
+              </div>
+              {node.handoffPackage.summary && <p style={{ margin: '4px 0', fontSize: '0.9em' }}><strong>上游总结：</strong>{node.handoffPackage.summary}</p>}
+              {node.handoffPackage.directive && <p style={{ margin: '4px 0', fontSize: '0.9em' }}><strong>行动指南：</strong>{node.handoffPackage.directive}</p>}
+              {node.handoffPackage.artifacts && node.handoffPackage.artifacts.length > 0 && <p style={{ margin: '4px 0', fontSize: '0.85em', color: 'var(--text-muted)' }}><strong>传递工件：</strong>{node.handoffPackage.artifacts.join('、')}</p>}
+              {node.handoffPackage.metrics && <p style={{ margin: '4px 0', fontSize: '0.85em', color: 'var(--text-muted)' }}><strong>上游消耗：</strong>{node.handoffPackage.metrics.steps} 步 · ¥{node.handoffPackage.metrics.cost.toFixed(4)}</p>}
+            </div>}
             <span className="workflow-task-copy">{isAgent ? copy.task : role ? `角色职责：${role.description}` : copy.task}</span>
             <div className="workflow-contract-copy"><span><b>接收</b>{copy.input}</span><span><b>交付</b>{copy.output}</span></div>
             {role && <span className="workflow-role-contract-ref">角色契约参考：接收 {role.inputContract}；交付 {role.outputContract}</span>}

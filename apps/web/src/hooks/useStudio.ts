@@ -24,7 +24,7 @@ export function useStudio() {
     Promise.all([api.health(controller.signal), api.templates(controller.signal)])
       .then(([health, response]) => {
         if (controller.signal.aborted) return;
-        if (health.mode !== 'mock') throw new Error('当前工作台仅支持模拟演示服务。');
+        if (health.mode !== 'mock' && health.mode !== 'mixed') throw new Error('当前工作台仅支持模拟或混合演示服务。');
         setTemplates(response.templates); setConnected(true); setLoadError(null);
       })
       .catch((failure: Error) => { if (!controller.signal.aborted) { setConnected(false); setLoadError(failure.message); } })

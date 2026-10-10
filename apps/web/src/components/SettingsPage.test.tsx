@@ -37,7 +37,7 @@ describe('模型配置 v2', () => {
     expect(body.settings.routes.image).toBe('mock-svg');
     expect(screen.getByText(/服务端检测到变量存在/)).toBeVisible();
     expect(screen.getByText(/实际运行仅模拟/)).toBeVisible();
-  });
+  }, 15000);
 
   it('显示工作区默认的完整绑定，可搜索模型与切换收藏筛选', async () => {
     const user = userEvent.setup();

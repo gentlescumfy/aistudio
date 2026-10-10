@@ -19,7 +19,13 @@ export const openapi = {
     description: 'Local AI Studio API. Published workflow prompt nodes may call one OpenAI-compatible text model per selected agent role; image generation remains deterministic local SVG. Native Langflow runs use the separately configured local Langflow service. Provider credentials are read only by the API process and are never stored or returned.' },
   servers: [{ url: 'http://localhost:4000' }],
   paths: {
-    '/api/health': { get: { responses: { 200: { description: 'Healthy local API, single-turn text agent capability and workflow storage', ...json({ type: 'object', required: ['status', 'mode', 'roleStorage', 'workflowStorage'], properties: { status: { const: 'ok' }, mode: { enum: ['mock', 'mixed'] }, roleStorage: { type: 'object', required: ['available', 'mode'], properties: { available: { const: true }, mode: { const: 'single-turn-text' } } }, workflowStorage: { type: 'object', required: ['available', 'mode'], properties: { available: { const: true }, mode: { const: 'local-file' } } } } }) }, 503: errorResponses[503] } } },
+    '/api/health': { get: { responses: { 200: { description: 'Healthy local API, single-turn text agent capability and workflow storage', ...json({ type: 'object', required: ['status', 'mode', 'projectId', 'roleStorage', 'workflowStorage'], properties: { status: { const: 'ok' }, mode: { enum: ['mock', 'mixed'] }, projectId: { type: 'string' }, roleStorage: { type: 'object', required: ['available', 'mode'], properties: { available: { const: true }, mode: { const: 'single-turn-text' } } }, workflowStorage: { type: 'object', required: ['available', 'mode'], properties: { available: { const: true }, mode: { const: 'local-file' } } } } }) }, 503: errorResponses[503] } } },
+    '/api/projects': {
+      get: { description: 'List all projects.', responses: { 200: { description: 'Project index', ...json({ type: 'object', required: ['revision', 'projects'], properties: { revision: { type: 'integer' }, projects: { type: 'array', items: reference('ProjectRecord') } } }) }, ...errorResponses } },
+      post: { description: 'Create a new project.', requestBody: { required: true, ...json({ type: 'object', required: ['name'], properties: { name: { type: 'string' }, id: { type: 'string' }, revision: { type: 'integer' } } }) }, responses: { 201: { description: 'Created project', ...json({ type: 'object', required: ['record'], properties: { record: reference('ProjectRecord') } }) }, ...errorResponses } },
+    },
+    '/api/projects/{id}/sync-langflow': { post: { description: 'Sync project with Langflow.', parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }], responses: { 200: { description: 'Sync result', ...json({ type: 'object', required: ['projectId', 'langflowProjectId', 'syncStatus'], properties: { projectId: { type: 'string' }, langflowProjectId: { type: ['string', 'null'] }, syncStatus: { enum: ['synced', 'pending'] } } }) }, ...errorResponses } } },
+    '/api/projects/{id}/delete': { post: { description: 'Delete a project.', parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }], responses: { 200: { description: 'Deleted project', ...json({ type: 'object', required: ['removed'], properties: { removed: reference('ProjectRecord') } }) }, ...errorResponses } } },
     '/api/templates': { get: { responses: { 200: { description: 'Executable image template and disabled future templates', ...json(wrapped('templates', { type: 'array', items: reference('Template') })) } } } },
     '/api/workflows': {
       get: { description: 'Workflow catalogue with immutable snapshots. Prompt nodes can use a single-turn agent when explicitly configured; image nodes remain local SVG.', responses: { 200: { description: 'Workflow library', ...json(reference('WorkflowLibrary')) }, ...errorResponses } },
@@ -30,6 +36,20 @@ export const openapi = {
     '/api/workflows/{id}/publish': { post: { description: 'Validate and publish a new immutable revision, capturing exact role snapshots for agent-enabled prompt nodes. Role tool declarations remain non-executable.', parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string', format: 'uuid' } }], requestBody: { required: true, ...json(z.toJSONSchema(workflowPublishRequestSchema)) }, responses: { 200: { description: 'Published revision', ...json(reference('WorkflowMutation')) }, ...errorResponses } } },
     '/api/workflows/{id}/archive': { post: { description: 'Archive a workflow while preserving published and draft history; prevents new runs.', parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string', format: 'uuid' } }], requestBody: { required: true, ...json(z.toJSONSchema(workflowArchiveRequestSchema)) }, responses: { 200: { description: 'Archived workflow', ...json(reference('WorkflowMutation')) }, ...errorResponses } } },
     '/api/workflows/{id}/revisions': { get: { description: 'Return immutable workflow revisions in ascending order.', parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string', format: 'uuid' } }], responses: { 200: { description: 'Workflow revision history', ...json({ type: 'object', required: ['revisions'], properties: { revisions: { type: 'array', items: reference('Workflow') } } }) }, ...errorResponses } } },
+    '/api/workflows/compile-langflow': {
+      post: {
+        description: 'Compile an AI Studio visual workflow definition into a Langflow 1.12.5 native Flow JSON payload.',
+        requestBody: { required: true, ...json(reference('WorkflowValidateRequest')) },
+        responses: { 200: { description: 'Compiled Langflow Flow payload', ...json({ type: 'object', required: ['flow'], properties: { flow: { type: 'object' } } }) }, ...errorResponses },
+      },
+    },
+    '/api/workflows/{id}/publish-langflow': {
+      post: {
+        description: 'Compile an existing visual workflow and publish it to the configured Langflow instance under the current project.',
+        parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string', format: 'uuid' } }],
+        responses: { 200: { description: 'Published Langflow Flow result', ...json({ type: 'object', required: ['flowId', 'workflowId', 'projectId'], properties: { flowId: { type: 'string', format: 'uuid' }, workflowId: { type: 'string', format: 'uuid' }, projectId: { type: 'string' } } }) }, ...errorResponses },
+      },
+    },
     '/api/settings': {
       get: { description: 'Local provider, model, route metadata, agent capability and credential presence only. Never returns credential values.', responses: { 200: { description: 'Configuration snapshot', ...json(reference('SettingsResponse')) }, ...errorResponses } },
       post: { description: 'Accept schemaVersion=2 provider/account/model metadata or the legacy v1 {revision,settings} snapshot; persist as v2 with optimistic revision checks. Raw API keys are rejected; no external connection is made.', requestBody: { required: true, ...json(reference('SaveSettings')) }, responses: { 200: { description: 'Saved v2 configuration snapshot', ...json(reference('SettingsResponse')) }, ...errorResponses } },
@@ -53,6 +73,7 @@ export const openapi = {
       post: { description: 'Persist a receipt before asynchronously calling native Langflow v1 run. Same idempotency key/request replays the original receipt; changed input conflicts. Timed out or interrupted requests can have executed and are marked outcome_unknown.', requestBody: { required: true, ...json(reference('CreateLangflowRun')) }, responses: { 202: { description: 'New queued execution receipt', ...json(wrapped('run', reference('LangflowRun'))) }, 200: { description: 'Existing receipt replay', ...json(wrapped('run', reference('LangflowRun'))) }, ...errorResponses } },
     },
     '/api/langflow/runs/{id}': { get: { description: 'Read one persisted Langflow execution receipt.', parameters: [runId], responses: { 200: { description: 'Langflow run receipt', ...json(wrapped('run', reference('LangflowRun'))) }, ...errorResponses } } },
+    '/api/langflow/runs/{id}/cancel': action('Cancel a queued or running Langflow execution receipt. Dispatches cancellation to upstream and terminates SSE events.'),
     '/api/runs': {
       get: { description: 'All runs, newest first. This local v1 has no pagination.', responses: { 200: { description: 'Run history', ...json(wrapped('runs', { type: 'array', items: reference('Run') })) } } },
       post: { description: 'Persist before asynchronous execution. Agent prompt nodes call the configured text model; image and export nodes remain local. Keys are scoped to this data directory; normalized same input returns existing run, different input returns 409.',
@@ -72,6 +93,7 @@ export const openapi = {
     '/api/openapi.json': { get: { responses: { 200: { description: 'This OpenAPI specification', ...json({ type: 'object' }) } } } },
   },
   components: { schemas: {
+    ProjectRecord: { type: 'object', required: ['id', 'name', 'langflowProjectId', 'createdAt'], properties: { id: { type: 'string' }, name: { type: 'string' }, langflowProjectId: { type: ['string', 'null'] }, createdAt: { type: 'string', format: 'date-time' } } },
     CreateRun: z.toJSONSchema(createSchema), Run: z.toJSONSchema(runSchema), Asset: z.toJSONSchema(assetSchema),
     Workflow: z.toJSONSchema(workflowRecordSchema), WorkflowDefinition: z.toJSONSchema(workflowDefinitionSchema),
     WorkflowLibrary: { type: 'object', required: ['revision', 'workflows', 'starterDefinition', 'runtime'], properties: {
@@ -126,7 +148,7 @@ export const openapi = {
     CreateLangflowRun: z.toJSONSchema(langflowRunRequestSchema),
     LangflowRun: { type: 'object', required: ['id', 'flowId', 'flowName', 'input', 'status', 'createdAt', 'updatedAt', 'output', 'error', 'provider'], properties: {
       id: { type: 'string', format: 'uuid' }, flowId: { type: 'string', format: 'uuid' }, flowName: { type: 'string' }, input: { type: 'string' },
-      status: { enum: ['queued', 'running', 'succeeded', 'failed', 'outcome_unknown'] }, createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
+      status: { enum: ['queued', 'running', 'succeeded', 'failed', 'cancelled', 'outcome_unknown'] }, createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
       output: { type: ['string', 'null'], maxLength: 16000 }, error: { type: ['string', 'null'], maxLength: 500 }, provider: { const: 'langflow' },
     } },
     Error: wrapped('error', { type: 'object', required: ['code', 'message'], properties: { code: { type: 'string' }, message: { type: 'string' } } }),

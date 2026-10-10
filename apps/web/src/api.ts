@@ -1,4 +1,4 @@
-import type { AccountConfig, AgnesAiValidation, Capability, Inputs, LangflowConfig, LangflowConfigResponse, LangflowFlow, LangflowRun, LangflowStatus, ModelBinding, ModelConfig, ProviderConfig, Role, RoleDefinition, RoleLibrary, RoleMutationResponse, RoleRevisionsResponse, Run, SettingsResponse, StudioSettings, Template, ToolDeclaration, Workflow, WorkflowDefinition, WorkflowLibrary, WorkflowMutationResponse, WorkflowRevisionsResponse, WorkflowValidation } from './types';
+import type { AccountConfig, AgnesAiValidation, Capability, Inputs, LangflowConfig, LangflowConfigResponse, LangflowFlow, LangflowRun, LangflowStatus, ModelBinding, ModelConfig, ProjectRecord, ProjectsResponse, ProviderConfig, Role, RoleDefinition, RoleLibrary, RoleMutationResponse, RoleRevisionsResponse, Run, SettingsResponse, StudioSettings, Template, ToolDeclaration, Workflow, WorkflowDefinition, WorkflowLibrary, WorkflowMutationResponse, WorkflowRevisionsResponse, WorkflowValidation } from './types';
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000').replace(/\/+$/, '');
 export class ApiError extends Error {
@@ -139,7 +139,7 @@ const validLangflowFlow = (value: unknown): value is LangflowFlow => record(valu
   && uuid(value.id) && typeof value.name === 'string' && value.name.length <= 200
   && typeof value.description === 'string' && value.description.length <= 2000
   && (value.updatedAt === null || typeof value.updatedAt === 'string' && Number.isFinite(Date.parse(value.updatedAt)));
-const langflowRunStatuses = ['queued', 'running', 'succeeded', 'failed', 'outcome_unknown'] as const;
+const langflowRunStatuses = ['queued', 'running', 'succeeded', 'failed', 'cancelled', 'outcome_unknown'] as const;
 const validLangflowRun = (value: unknown): value is LangflowRun => record(value) && Object.keys(value).length === 10
   && Object.keys(value).every(key => ['id', 'flowId', 'flowName', 'input', 'status', 'createdAt', 'updatedAt', 'output', 'error', 'provider'].includes(key))
   && typeof value.id === 'string' && value.id.length >= 1 && value.id.length <= 128 && uuid(value.flowId) && typeof value.flowName === 'string' && value.flowName.length <= 200
@@ -241,7 +241,7 @@ function validPayload(path: string, payload: unknown, body?: unknown): boolean {
     && payload.flows.every(validLangflowFlow) && unique(payload.flows.map(flow => flow.id));
   if (path === '/api/langflow/runs' && body === undefined) return Object.keys(payload).length === 1
     && Array.isArray(payload.runs) && payload.runs.every(validLangflowRun);
-  if (path === '/api/langflow/runs' || /^\/api\/langflow\/runs\/[^/]+$/.test(path)) return Object.keys(payload).length === 1 && validLangflowRun(payload.run);
+  if (path === '/api/langflow/runs' || /^\/api\/langflow\/runs\/[^/]+(?:\/cancel)?$/.test(path)) return Object.keys(payload).length === 1 && validLangflowRun(payload.run);
   if (path === '/api/workflows' && body === undefined) return validWorkflowLibrary(payload);
   if (path === '/api/workflows/validate') return validWorkflowValidation(payload);
   if (/^\/api\/workflows\/[a-z0-9-]+\/revisions$/.test(path)) return Object.keys(payload).length === 1
@@ -276,9 +276,18 @@ function validPayload(path: string, payload: unknown, body?: unknown): boolean {
     && (template.workflowRevision === undefined || Number.isInteger(template.workflowRevision) && (template.workflowRevision as number) >= 1)
     && (template.agentNodeCount === undefined || Number.isInteger(template.agentNodeCount) && (template.agentNodeCount as number) >= 0 && (template.agentNodeCount as number) <= template.nodes.length)
     && (template.source !== 'workflow' || Number.isInteger(template.workflowRevision) && (template.workflowRevision as number) >= 1));
+  if (path === '/api/projects' && body === undefined) return record(payload)
+    && Number.isInteger(payload.revision) && Array.isArray(payload.projects);
+  if (path === '/api/projects' && body !== undefined) return record(payload) && record(payload.record);
+  if (/^\/api\/projects\/[^/]+\/sync-langflow$/.test(path)) return record(payload) && typeof payload.projectId === 'string';
+  if (/^\/api\/projects\/[^/]+\/delete$/.test(path)) return record(payload) && typeof payload.removed === 'object';
   if (path === '/api/runs' && body === undefined) return Array.isArray(payload.runs) && payload.runs.every(validRun);
   return validRun(payload.run);
 }
+let globalProjectId = localStorage.getItem('studio_project_id') || 'default';
+export const setProjectId = (id: string) => { globalProjectId = id; localStorage.setItem('studio_project_id', id); };
+export const getProjectId = () => globalProjectId;
+
 async function request<T>(path: string, signal: AbortSignal, body?: unknown): Promise<T> {
   const controller = new AbortController();
   const abort = () => controller.abort();
@@ -288,7 +297,10 @@ async function request<T>(path: string, signal: AbortSignal, body?: unknown): Pr
   try {
     const response = await fetch(`${API_BASE_URL}${path}`, {
       signal: controller.signal, method: body === undefined ? 'GET' : 'POST',
-      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      headers: {
+        ...(body === undefined ? undefined : { 'Content-Type': 'application/json' }),
+        'x-project-id': globalProjectId,
+      },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     const payload: unknown = await response.json().catch(() => null);
@@ -314,6 +326,8 @@ export const api = {
   langflowRun: (id: string, signal: AbortSignal) => request<{ run: LangflowRun }>(`/api/langflow/runs/${encodeURIComponent(id)}`, signal),
   createLangflowRun: (flowId: string, input: string, idempotencyKey: string, signal: AbortSignal) =>
     request<{ run: LangflowRun }>('/api/langflow/runs', signal, { flowId, input, idempotencyKey }),
+  cancelLangflowRun: (id: string, signal: AbortSignal) =>
+    request<{ run: LangflowRun }>(`/api/langflow/runs/${encodeURIComponent(id)}/cancel`, signal, {}),
   settings: (signal: AbortSignal) => request<SettingsResponse>('/api/settings', signal),
   saveSettings: (revision: number, settings: StudioSettings, signal: AbortSignal) => request<SettingsResponse>('/api/settings', signal, { schemaVersion: 2, revision, settings }),
   validateAgnesAi: (signal: AbortSignal) => request<AgnesAiValidation>('/api/settings/validate-agnesai', signal, {}),
@@ -337,6 +351,13 @@ export const api = {
     request<{ run: Run }>('/api/runs', signal, { templateId, inputs, idempotencyKey, ...(workflowRevision === undefined ? {} : { workflowRevision }) }),
   action: (id: string, action: 'retry' | 'cancel', signal: AbortSignal) =>
     request<{ run: Run }>(`/api/runs/${encodeURIComponent(id)}/${action}`, signal, {}),
+  projects: (signal: AbortSignal) => request<ProjectsResponse>('/api/projects', signal),
+  createProject: (name: string, id: string | undefined, signal: AbortSignal, revision?: number) =>
+    request<{ record: ProjectRecord }>('/api/projects', signal, { name, ...(id ? { id } : {}), ...(revision !== undefined ? { revision } : {}) }),
+  syncLangflowProject: (id: string, signal: AbortSignal) =>
+    request<{ projectId: string; langflowProjectId: string | null; syncStatus: 'synced' | 'pending' }>(`/api/projects/${encodeURIComponent(id)}/sync-langflow`, signal, {}),
+  deleteProject: (id: string, signal: AbortSignal) =>
+    request<{ removed: ProjectRecord }>(`/api/projects/${encodeURIComponent(id)}/delete`, signal, {}),
 };
 export function validateInputs(prompt: string, count: number): string | null {
   if (!prompt.trim()) return '请描述你想创作的品牌素材。';

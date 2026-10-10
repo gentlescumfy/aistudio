@@ -8,15 +8,18 @@ import {
   defaultLangflowConfig, langflowConfigSchema,
   type LangflowConfig, type LangflowFlow, type LangflowRun, type LangflowRunRequest, type LangflowStatus,
 } from './langflow-contract.js';
+import { compileWorkflowToLangflow } from './langflow-compiler.js';
+import type { Workflow, WorkflowDefinition } from './workflow-contract.js';
 
 const configFileSchema = z.strictObject({ schemaVersion: z.literal(1), revision: z.number().int().nonnegative(), config: langflowConfigSchema });
 const flowSchema = z.strictObject({ id: z.uuid(), name: z.string().min(1).max(500), description: z.string().max(4000), updatedAt: z.iso.datetime({ offset: true }).nullable() });
 const runSnapshotSchema = z.strictObject({ config: langflowConfigSchema, flow: flowSchema });
 const storedRunSchema = z.strictObject({
   id: z.uuid(), flowId: z.uuid(), flowName: z.string().min(1).max(500), input: z.string().min(1).max(2000),
-  status: z.enum(['queued', 'running', 'succeeded', 'failed', 'outcome_unknown']),
+  status: z.enum(['queued', 'running', 'succeeded', 'failed', 'cancelled', 'outcome_unknown']),
   createdAt: z.iso.datetime(), updatedAt: z.iso.datetime(), output: z.string().max(16_000).nullable(),
   error: z.string().max(500).nullable(), provider: z.literal('langflow'), snapshot: runSnapshotSchema,
+  jobId: z.string().optional(),
 });
 const ledgerSchema = z.strictObject({
   schemaVersion: z.literal(1), runs: z.array(storedRunSchema),
@@ -140,6 +143,43 @@ export class LangflowService {
     return publicRun(run);
   }
 
+  async cancel(id: string): Promise<LangflowRun> {
+    this.assertLedgerAvailable();
+    const run = this.ledger.runs.find((item) => item.id === id);
+    if (!run) throw new ApiError(404, 'LANGFLOW_RUN_NOT_FOUND', 'Langflow run not found.');
+    if (!['queued', 'running'].includes(run.status)) {
+      throw new ApiError(409, 'CANNOT_CANCEL', `Run in '${run.status}' state cannot be cancelled.`);
+    }
+
+    const previousStatus = run.status;
+    const jobId = run.jobId;
+    const config = run.snapshot.config;
+
+    // If currently running, abort active SSE stream
+    if (previousStatus === 'running' && this.active) {
+      this.active.abort();
+    }
+
+    const updated = await this.transactLedger((ledger) => {
+      const target = ledger.runs.find((item) => item.id === id);
+      if (!target || !['queued', 'running'].includes(target.status)) return target;
+      target.status = 'cancelled';
+      target.error = 'Run cancelled by user request.';
+      target.updatedAt = new Date().toISOString();
+      return target;
+    });
+
+    // Best-effort cancel propagation to Langflow upstream if job was dispatched
+    if (previousStatus === 'running' && jobId) {
+      this.requestJson(config, `/api/v1/build/${jobId}/cancel`, {
+        authenticated: true,
+        method: 'POST',
+      }).catch(() => undefined);
+    }
+
+    return publicRun(updated ?? run);
+  }
+
   async createRun(request: LangflowRunRequest): Promise<{ run: LangflowRun; replayed: boolean }> {
     this.assertLedgerAvailable();
     const fingerprint = createHash('sha256').update(JSON.stringify({ flowId: request.flowId, input: request.input })).digest('hex');
@@ -195,6 +235,55 @@ export class LangflowService {
       });
     }
     if (this.ledger.runs.some((run) => run.status === 'queued')) this.schedule();
+  }
+
+  /**
+   * Best-effort sync of this project into the configured Langflow instance.
+   * Returns the Langflow project id on success, or null when Langflow is
+   * unconfigured/unreachable — project creation must not depend on Langflow.
+   */
+  async createProject(name: string): Promise<{ langflowProjectId: string } | null> {
+    try {
+      const { config } = this.readConfig();
+      this.requireApiKey(config);
+      const data = await this.requestJson(config, '/api/v1/projects', { authenticated: true, method: 'POST', body: { name, description: `AI Studio project: ${name}` } });
+      const id = asRecord(data)?.id;
+      if (typeof id !== 'string' || !z.uuid().safeParse(id).success) return null;
+      return { langflowProjectId: id };
+    } catch (error) {
+      this.reportError(`Langflow project sync failed: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+  }
+
+  /**
+   * Compiles an AI Studio workflow and publishes it to the configured Langflow instance.
+   */
+  async publishWorkflowToProject(
+    projectId: string | null,
+    workflow: Workflow | WorkflowDefinition,
+  ): Promise<{ flowId: string }> {
+    const { config } = this.readConfig();
+    this.requireApiKey(config);
+    const flowPayload = compileWorkflowToLangflow(workflow, {
+      projectId: projectId ?? undefined,
+      folderId: projectId ?? undefined,
+    });
+    try {
+      const result = await this.requestJson(config, '/api/v1/flows/', {
+        authenticated: true,
+        method: 'POST',
+        body: flowPayload,
+      });
+      const record = asRecord(result);
+      const id = record?.id;
+      if (typeof id !== 'string' || !z.uuid().safeParse(id).success) {
+        throw new UpstreamError('invalid-shape');
+      }
+      return { flowId: id };
+    } catch (error) {
+      throw publicUpstreamError(error);
+    }
   }
 
   private lookup(key: string, fingerprint: string): LangflowRun | undefined {
@@ -325,16 +414,111 @@ export class LangflowService {
 
   private async dispatch(run: StoredRun): Promise<void> {
     try {
-      const result = await this.requestJson(run.snapshot.config, `/api/v1/run/${run.flowId}?stream=false`, {
-        authenticated: true, method: 'POST', signal: this.setActiveController(),
-        body: { input_request: { input_value: run.input, input_type: 'chat', output_type: 'chat', session_id: `studio-${run.id}` } },
-      });
-      const output = decodeOutput(result);
+      if (!run.jobId) {
+        const result = await this.requestJson(run.snapshot.config, `/api/v1/build/${run.flowId}/flow`, {
+          authenticated: true, method: 'POST', signal: this.setActiveController(),
+          body: { inputs: { input_value: run.input, input_type: 'chat', output_type: 'chat' }, session_id: `studio-${run.id}` },
+        });
+        const jobId = asRecord(result)?.job_id || asRecord(result)?.id;
+        if (typeof jobId !== 'string') throw new UpstreamError('invalid-shape');
+        await this.transactLedger((ledger) => {
+          const r = ledger.runs.find((item) => item.id === run.id && item.status === 'running');
+          if (r) { r.jobId = jobId; r.updatedAt = new Date().toISOString(); }
+        });
+        run.jobId = jobId;
+      }
+      
+      const output = await this.pollJobEvents(run.jobId, run.snapshot.config);
       await this.finish(run.id, 'succeeded', output, null);
     } catch (error) {
       const mapped = runFailure(error);
       await this.finish(run.id, mapped.status, null, mapped.message);
     } finally { this.active = undefined; }
+  }
+
+  private async pollJobEvents(jobId: string, config: LangflowConfig): Promise<string> {
+    const url = new URL(config.baseUrl);
+    const prefix = url.pathname.replace(/\/+$/, '');
+    const route = new URL(`/api/v1/build/${jobId}/events`, 'http://langflow.internal');
+    url.pathname = `${prefix}${route.pathname}`;
+    const headers: Record<string, string> = { accept: 'text/event-stream' };
+    const key = this.resolveApiKey(config);
+    if (key) headers['x-api-key'] = key;
+
+    const controller = new AbortController();
+    this.active = controller;
+    let timer: NodeJS.Timeout | undefined;
+    let timedOut = false;
+    let rejectTimeout!: (error: UpstreamError) => void;
+    const timeout = new Promise<never>((_resolve, reject) => { rejectTimeout = reject; });
+    timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+      rejectTimeout(new UpstreamError('timeout'));
+    }, config.timeoutMs);
+    timer.unref?.();
+
+    try {
+      const operation = async () => {
+        const response = await this.fetcher(url, { method: 'GET', headers, signal: controller.signal });
+        if (response.status >= 300 && response.status < 400) throw new UpstreamError('redirect', response.status);
+        if (!response.ok) throw new UpstreamError('http', response.status);
+        if (!response.body) throw new UpstreamError('invalid-shape');
+
+        const reader = response.body.getReader();
+        controller.signal.addEventListener('abort', () => {
+          reader.cancel().catch(() => undefined);
+        });
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let finalOutput: string | undefined = undefined;
+
+        while (!this.stopping && !controller.signal.aborted) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          
+          let newlineIdx;
+          while ((newlineIdx = buffer.indexOf('\n\n')) >= 0) {
+            const chunk = buffer.slice(0, newlineIdx);
+            buffer = buffer.slice(newlineIdx + 2);
+            
+            const eventMatch = chunk.match(/^event:\s*(.+)$/m);
+            const dataMatch = chunk.match(/^data:\s*(.+)$/m);
+            
+            if (eventMatch && dataMatch) {
+              const eventType = eventMatch[1]?.trim() ?? '';
+              const eventData = dataMatch[1]?.trim() ?? '';
+              
+              if (eventType === 'error') {
+                 try {
+                     const parsed = JSON.parse(eventData);
+                     throw new Error(parsed.error || eventData);
+                 } catch {
+                     throw new Error(eventData);
+                 }
+              }
+              
+              try {
+                const parsed = JSON.parse(eventData);
+                if (parsed && Array.isArray(parsed.outputs)) {
+                  finalOutput = decodeOutput(parsed);
+                }
+              } catch {}
+            }
+          }
+        }
+        if (finalOutput !== undefined) return finalOutput;
+        throw new UpstreamError('invalid-shape');
+      };
+      return await Promise.race([operation(), timeout]);
+    } catch (error) {
+      if (error instanceof UpstreamError) throw error;
+      throw new UpstreamError(timedOut ? 'timeout' : 'transport');
+    } finally {
+      if (timer) clearTimeout(timer);
+      controller.abort();
+    }
   }
 
   private setActiveController(): AbortSignal {

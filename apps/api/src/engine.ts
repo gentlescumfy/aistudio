@@ -8,6 +8,8 @@ import type { Workflow } from './workflow-contract.js';
 import { TextAgentRuntime, type AgentCompletion } from './agent-runtime.js';
 import type { Role } from './roles.js';
 import type { AgentModelTarget } from './settings.js';
+import { GovernanceGateway } from './governance.js';
+import { buildHandoffPackage, renderHandoffTemplate } from './handoff.js';
 
 const unknownOutcome = 'PROVIDER_OUTCOME_UNKNOWN: manual reconciliation required; automatic resubmission disabled.';
 
@@ -170,6 +172,11 @@ export class RunEngine {
           if (node.agentTarget) {
             const role = run.workflowSnapshot?.roleSnapshots.find((item) => item.nodeId === node.id)?.role;
             if (!role || node.kind !== 'prompt') throw new Error('代理角色快照缺失，无法执行此步骤。');
+            const governance = new GovernanceGateway(this.store.directory);
+            const evalResult = await governance.evaluateAgentExecution(role, run.id, node.id, node.attempts, run.actualCost ?? 0);
+            if (!evalResult.approved) {
+              throw new Error(evalResult.error ?? '治理网关拒绝了此智能体步骤的执行。');
+            }
             agentCompletion = await this.textAgent.execute(role, node.outputPrompt ?? run.inputs.prompt, node.agentTarget, controller.signal);
             output = [];
           } else output = await this.provider.execute(run, node, controller.signal);
@@ -204,6 +211,13 @@ export class RunEngine {
               modelName: agentCompletion.modelName,
               completedAt: agentCompletion.completedAt,
             };
+            const role = current.workflowSnapshot?.roleSnapshots.find((item) => item.nodeId === completed.id)?.role;
+            completed.handoffPackage = buildHandoffPackage(completed.id, agentCompletion.text, {
+              roleName: role?.name,
+              artifacts: current.assets.filter((a) => a.nodeId === completed.id).map((a) => a.name),
+              steps: completed.attempts,
+              cost: current.actualCost ?? 0,
+            });
           }
           // IDs and paths are deterministic; interrupted mock writes are safely replaced.
           for (const item of output) {
@@ -287,7 +301,7 @@ function propagateNodeOutput(run: Run, completed: Run['nodes'][number]): void {
       continue;
     }
     if (dependent.kind !== 'prompt' || !dependent.config || !('template' in dependent.config)) continue;
-    const expanded = dependent.config.template.replace(/{{\s*(prompt|count)\s*}}/g, (_match, key: string) => key === 'prompt' ? text : String(run.inputs.count));
+    const expanded = renderHandoffTemplate(dependent.config.template, run.inputs, completed.handoffPackage);
     if (expanded.length > 16_000) {
       dependent.status = 'failed';
       dependent.error = 'PROMPT_TOO_LARGE: 上游代理输出展开后超过 16000 个字符。';

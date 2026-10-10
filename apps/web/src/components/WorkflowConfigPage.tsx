@@ -483,7 +483,18 @@ export function WorkflowConfigPage() {
               <label className="workflow-field">节点名称<input aria-label="节点名称" maxLength={80} value={currentNode.data.spec.name} onChange={event => updateNode(currentNode.id, node => ({ ...node, name: event.target.value }))} disabled={busy || selected.lifecycle === 'archived'} /></label>
               {currentNode.data.spec.kind === 'prompt' && <div className="workflow-node-config-grid">
                 <label className="workflow-field">执行方式<select aria-label="提示词节点执行方式" value={currentNode.data.spec.config.executionMode || 'template'} onChange={event => updateNode(currentNode.id, node => node.kind === 'prompt' ? { ...node, config: { ...node.config, executionMode: event.target.value as 'template' | 'agent' } } : node)} disabled={busy || selected.lifecycle === 'archived'}><option value="template">本地模板处理</option><option value="agent">调用代理角色</option></select><small>代理调用会发送角色提示词和任务到已配置模型，并可能产生费用。</small></label>
-                <label className="workflow-field workflow-field-wide">提示词模板<textarea aria-label="提示词模板" maxLength={6000} rows={5} value={currentNode.data.spec.config.template} onChange={event => updateNode(currentNode.id, node => node.kind === 'prompt' ? { ...node, config: { ...node.config, template: event.target.value } } : node)} disabled={busy || selected.lifecycle === 'archived'} /><small>仅支持 {'{{prompt}}'} 与 {'{{count}}'}，不会执行表达式。</small></label>
+                <label className="workflow-field workflow-field-wide">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>提示词模板</span>
+                    <span style={{ display: 'flex', gap: '4px' }}>
+                      <button type="button" className="text-button" onClick={() => updateNode(currentNode.id, node => node.kind === 'prompt' ? { ...node, config: { ...node.config, template: node.config.template + '{{ directive }}' } } : node)} disabled={busy || selected.lifecycle === 'archived'} style={{ fontSize: '0.8em', padding: '0 4px' }}>+ 行动指南</button>
+                      <button type="button" className="text-button" onClick={() => updateNode(currentNode.id, node => node.kind === 'prompt' ? { ...node, config: { ...node.config, template: node.config.template + '{{ handoff.summary }}' } } : node)} disabled={busy || selected.lifecycle === 'archived'} style={{ fontSize: '0.8em', padding: '0 4px' }}>+ 上游总结</button>
+                      <button type="button" className="text-button" onClick={() => updateNode(currentNode.id, node => node.kind === 'prompt' ? { ...node, config: { ...node.config, template: node.config.template + '{{ handoff.roleName }}' } } : node)} disabled={busy || selected.lifecycle === 'archived'} style={{ fontSize: '0.8em', padding: '0 4px' }}>+ 上游角色</button>
+                    </span>
+                  </div>
+                  <textarea aria-label="提示词模板" maxLength={6000} rows={5} value={currentNode.data.spec.config.template} onChange={event => updateNode(currentNode.id, node => node.kind === 'prompt' ? { ...node, config: { ...node.config, template: event.target.value } } : node)} disabled={busy || selected.lifecycle === 'archived'} />
+                  <small>支持 {'{{prompt}}'}、{'{{count}}'} 及协作变量 {'{{ directive }}'}、{'{{ handoff.summary }}'}、{'{{ handoff.roleName }}'}。</small>
+                </label>
                 <label className="workflow-field">角色引用版本<select aria-label="角色引用版本" value={selectedRoleValue} onChange={event => {
                   const [id, rev] = event.target.value.split('@');
                   const roleRef = id && rev ? { id, revision: Number(rev) } : null;

@@ -38,7 +38,7 @@ export type LangflowRunRequest = z.infer<typeof langflowRunRequestSchema>;
 export type LangflowFlow = { id: string; name: string; description: string; updatedAt: string | null };
 export type LangflowRun = {
   id: string; flowId: string; flowName: string;
-  input: string; status: 'queued' | 'running' | 'succeeded' | 'failed' | 'outcome_unknown';
+  input: string; status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'outcome_unknown';
   createdAt: string; updatedAt: string;
   output: string | null; error: string | null;
   provider: 'langflow';

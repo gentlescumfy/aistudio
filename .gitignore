@@ -11,3 +11,7 @@ coverage/
 .claude/settings.local.json
 test-results/
 playwright-report/
+.agents/mcp_config.json
+.omp/mcp.json
+scratch/
+run-rea-direct.mjs

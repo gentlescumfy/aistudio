@@ -33,7 +33,7 @@ export function validateLangflowInput(input: string): string | null {
 }
 
 export const langflowRunStatusLabel: Record<LangflowRunStatus, string> = {
-  queued: '排队中', running: '运行中', succeeded: '已完成', failed: '运行失败', outcome_unknown: '结果待确认',
+  queued: '排队中', running: '运行中', succeeded: '已完成', failed: '运行失败', cancelled: '已取消', outcome_unknown: '结果待确认',
 };
 
 export const langflowRunStatusDescription: Record<LangflowRunStatus, string> = {
@@ -41,6 +41,7 @@ export const langflowRunStatusDescription: Record<LangflowRunStatus, string> = {
   running: 'Langflow 正在处理该流程。',
   succeeded: 'Langflow 已返回结果。',
   failed: 'Langflow 执行失败；此记录保留供查看。',
+  cancelled: '任务已取消；已停止接收结果。',
   outcome_unknown: '请求可能已在 Langflow 执行，但未能确认结果。请先刷新历史，不要自动重提。',
 };
 

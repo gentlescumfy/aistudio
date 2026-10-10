@@ -69,7 +69,7 @@ test('transactions roll back domain validation failures without losing other sub
   const store = await FileStore.open(directory);
   try {
     const before = store.snapshot();
-    await assert.rejects(store.transaction((db) => { db.runs[0]!.actualCost = 10 as 0; }));
+    await assert.rejects(store.transaction((db) => { (db.runs[0] as unknown as { actualCost: number }).actualCost = -1; }));
     assert.deepEqual(store.snapshot(), before);
     assert.deepEqual(JSON.parse(await readFile(join(directory, 'runs.json'), 'utf8')), before);
     await store.transaction((db) => { db.runs[0]!.inputs.prompt = 'Still writable'; });

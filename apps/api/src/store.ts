@@ -121,13 +121,22 @@ export class FileStore {
     try {
       const file = await open(path, 'wx', 0o600);
       try { await file.writeFile(contents); await file.sync(); } finally { await file.close(); }
-      const directory = await open(this.directory, 'r');
-      try { await directory.sync(); } finally { await directory.close(); }
+      await syncDirectory(this.directory);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
       const existing = await readFile(path);
       if (!existing.equals(contents)) throw new Error('Existing runs.json.v1.bak does not match the legacy source; refusing migration.');
     }
+  }
+}
+
+async function syncDirectory(directoryPath: string): Promise<void> {
+  if (process.platform === 'win32') return;
+  try {
+    const directory = await open(directoryPath, 'r');
+    try { await directory.sync(); } finally { await directory.close(); }
+  } catch {
+    // Directory sync is not supported on all filesystems.
   }
 }
 
@@ -137,9 +146,26 @@ export async function atomicWrite(path: string, data: string | Buffer): Promise<
     const file = await open(temporary, 'wx', 0o600);
     try { await file.writeFile(data); await file.sync(); }
     finally { await file.close(); }
-    await rename(temporary, path);
+
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        await rename(temporary, path);
+        lastError = undefined;
+        break;
+      } catch (err) {
+        lastError = err;
+        const code = (err as NodeJS.ErrnoException).code;
+        if (process.platform === 'win32' && (code === 'EPERM' || code === 'EBUSY' || code === 'EACCES')) {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        } else {
+          throw err;
+        }
+      }
+    }
+    if (lastError) throw lastError;
+
     // Flush the rename as well as file contents on local filesystems.
-    const directory = await open(dirname(path), 'r');
-    try { await directory.sync(); } finally { await directory.close(); }
+    await syncDirectory(dirname(path));
   } finally { await unlink(temporary).catch(() => undefined); }
 }

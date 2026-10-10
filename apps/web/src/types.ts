@@ -66,7 +66,7 @@ export interface LangflowConfig { baseUrl: string; authMode: LangflowAuthMode; s
 export interface LangflowConfigResponse { revision: number; config: LangflowConfig; credentialConfigured: boolean }
 export interface LangflowStatus { connected: boolean; version: string | null; editorUrl: string; authMode: LangflowAuthMode; message: string }
 export interface LangflowFlow { id: string; name: string; description: string; updatedAt: string | null }
-export type LangflowRunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'outcome_unknown';
+export type LangflowRunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'outcome_unknown';
 export interface LangflowRun {
   id: string; flowId: string; flowName: string; input: string; status: LangflowRunStatus;
   createdAt: string; updatedAt: string; output: string | null; error: string | null; provider: 'langflow';
@@ -88,10 +88,16 @@ export type AgnesAiValidationStatus = 'connected' | 'missing_key' | 'unauthorize
 export interface AgnesAiValidation {
   ok: boolean; status: AgnesAiValidationStatus; message: string; modelCount: number | null; checkedAt: string;
 }
+export interface HandoffPackage {
+  sourceNodeId: string; roleName?: string; summary: string; directive: string;
+  artifacts: string[]; metrics?: { steps: number; cost: number; durationMs?: number };
+  createdAt: string;
+}
 export interface RunNode extends TemplateNode {
   status: NodeStatus; attempts: number; error?: string | { code?: string; message: string };
   config?: WorkflowNode['config']; dependsOn?: string[]; outputPrompt?: string; agentOutput?: string;
   agentExecution?: { providerName: string; modelName: string; completedAt: string };
+  handoffPackage?: HandoffPackage;
 }
 export interface Asset {
   id: string; runId: string; nodeId: string; name: string; mimeType: string;
@@ -110,3 +116,16 @@ export const statusLabel: Record<RunStatus | NodeStatus, string> = {
 };
 export const isActive = (run: Run) => run.status === 'queued' || run.status === 'running';
 export const errorMessage = (error: Run['error']) => typeof error === 'string' ? error : error?.message;
+
+export interface ProjectRecord {
+  id: string;
+  name: string;
+  langflowProjectId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectsResponse {
+  revision: number;
+  projects: ProjectRecord[];
+}
