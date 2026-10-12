@@ -30,14 +30,14 @@ export type PoolOptions = {
   provider?: Provider;
   mockDelayMs?: number;
   langflowFetch?: typeof fetch;
-  agnesAiFetch?: typeof fetch;
-  agnesAiEnvironment?: NodeJS.ProcessEnv;
+  modelEnvironment?: NodeJS.ProcessEnv;
   logError: (err: unknown, message: string) => void;
 };
 
 /** Lazily opens and caches one isolated StoreSet per project. */
 export class StorePool {
   private readonly sets = new Map<string, StoreSet>();
+  private readonly opening = new Map<string, Promise<StoreSet>>();
 
   constructor(private readonly options: PoolOptions) {}
 
@@ -45,9 +45,18 @@ export class StorePool {
     const id = assertProjectId(projectId);
     const cached = this.sets.get(id);
     if (cached) return cached;
-    const set = await this.open(id);
-    this.sets.set(id, set);
-    return set;
+    const pending = this.opening.get(id);
+    if (pending) return pending;
+    const opening = this.open(id).then((set) => {
+      this.sets.set(id, set);
+      return set;
+    });
+    this.opening.set(id, opening);
+    try {
+      return await opening;
+    } finally {
+      if (this.opening.get(id) === opening) this.opening.delete(id);
+    }
   }
 
   projectIds(): string[] { return [...this.sets.keys()]; }
@@ -93,7 +102,7 @@ export class StorePool {
         file, assets, this.options.provider ?? new MockProvider(this.options.mockDelayMs),
         (error) => this.options.logError(error, 'Executor stopped after storage failure'), workflows,
         (selection, deadlineMs) => settings!.resolveTextAgentTarget(selection.kind === 'binding' ? selection.binding : undefined, deadlineMs),
-        new TextAgentRuntime(fetch, this.options.agnesAiEnvironment ?? process.env),
+        new TextAgentRuntime(fetch, this.options.modelEnvironment ?? process.env),
       );
       await engine.recover();
       return { projectId, file, assets, settings, roles, workflows, langflow, engine };

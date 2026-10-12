@@ -223,11 +223,6 @@ textarea::placeholder, input::placeholder { color: var(--text-muted); opacity: .
 .settings-runtime { background: var(--accent-wash); border-color: #754b35; color: var(--accent-strong); }
 .settings-runtime p, .settings-runtime > div p { color: var(--text-soft); }
 .settings-runtime-copy { flex: 1 1 380px; min-width: 0; }
-.agnesai-validation-button { flex: 0 0 auto; }
-.agnesai-validation-result { display: flex; align-items: flex-start; gap: 6px; margin-top: 8px; font-size: 11px; line-height: 1.6; }
-.agnesai-validation-result svg { flex: 0 0 auto; margin-top: 2px; }
-.agnesai-validation-result.is-success { color: var(--success); }
-.agnesai-validation-result.is-error { color: var(--danger); }
 .settings-default input, .settings-page input, .settings-page select { background: var(--surface-2); border-color: var(--line); color: var(--text); }
 .settings-default input[readonly], .settings-page input[readonly] { background: var(--surface-raised); }
 .settings-grid label, .settings-default label, .route-field { color: var(--text-soft); }
@@ -492,7 +487,7 @@ textarea::placeholder, input::placeholder { color: var(--text-muted); opacity: .
   .submit-area { align-items: stretch; flex-direction: column; }.submit-area .primary-button { width: 100%; }
   .suggestions > span { width: 100%; }.catalog-tools { grid-template-columns: minmax(0, 1fr); }.catalog-count { grid-column: auto; }.pin-filter { width: max-content; }
   .provider-card, .account-card { padding: 11px; }.provider-card .settings-grid { grid-template-columns: minmax(0, 1fr); }
-  .settings-runtime { align-items: flex-start; flex-wrap: wrap; }.settings-runtime > div { flex: 1 1 calc(100% - 35px); }.settings-runtime .mock-badge { margin-left: 29px; }.agnesai-validation-button { margin-left: 29px; }
+  .settings-runtime { align-items: flex-start; flex-wrap: wrap; }.settings-runtime > div { flex: 1 1 calc(100% - 35px); }.settings-runtime .mock-badge { margin-left: 29px; }
   .settings-save { gap: 7px; padding: 8px; }.settings-save p { font-size: 10px; }.settings-save .primary-button { width: auto; padding: 9px; }
   .status-strip { font-size: 9px; }.status-strip a { margin-left: 0; }
   .role-toolbar { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; }

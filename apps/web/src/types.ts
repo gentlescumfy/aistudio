@@ -84,10 +84,6 @@ export interface SettingsResponse {
   runtime: { mode: 'mock' | 'mixed'; activeImageModel: 'mock-svg'; externalProvidersEnabled: boolean };
   credentials: { accountId: string; configured: boolean }[];
 }
-export type AgnesAiValidationStatus = 'connected' | 'missing_key' | 'unauthorized' | 'forbidden' | 'rate_limited' | 'upstream_error' | 'network_error' | 'invalid_response';
-export interface AgnesAiValidation {
-  ok: boolean; status: AgnesAiValidationStatus; message: string; modelCount: number | null; checkedAt: string;
-}
 export interface HandoffPackage {
   sourceNodeId: string; roleName?: string; summary: string; directive: string;
   artifacts: string[]; metrics?: { steps: number; cost: number; durationMs?: number };

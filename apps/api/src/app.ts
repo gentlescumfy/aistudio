@@ -5,7 +5,6 @@ import { ApiError, createSchema, findRun, templates } from './domain.js';
 import { openapi } from './openapi.js';
 import { saveSettingsSchema, type ModelBinding } from './settings.js';
 import { archiveRoleRequestSchema, createRoleRequestSchema, editRoleRequestSchema } from './roles.js';
-import { validateAgnesAi } from './agnesai.js';
 import { langflowRunRequestSchema, saveLangflowConfigSchema } from './langflow-contract.js';
 import { workflowArchiveRequestSchema, workflowDefinitionSchema, workflowMutationSchema, workflowPublishRequestSchema } from './workflow-contract.js';
 import { compileWorkflowToLangflow } from './langflow-compiler.js';
@@ -23,10 +22,8 @@ export interface AppOptions {
   provider?: Provider;
   /** Tests inject a bounded fake upstream; production always uses Node's fetch. */
   langflowFetch?: typeof fetch;
-  /** Tests may inject the provider-catalogue request; production uses Node's fetch. */
-  agnesAiFetch?: typeof fetch;
-  /** Tests may inject a non-persistent environment snapshot; production uses process.env. */
-  agnesAiEnvironment?: NodeJS.ProcessEnv;
+  /** Tests may inject a non-persistent model-provider environment snapshot. */
+  modelEnvironment?: NodeJS.ProcessEnv;
 }
 const idSchema = z.uuid();
 const noBody = z.strictObject({});
@@ -52,15 +49,17 @@ export async function createApp(options: AppOptions): Promise<FastifyInstance> {
     provider: options.provider,
     mockDelayMs: options.mockDelayMs,
     langflowFetch: options.langflowFetch,
+    modelEnvironment: options.modelEnvironment,
     logError: (err, message) => app.log.error({ err }, message),
   });
-  const agnesAiFetch = options.agnesAiFetch ?? fetch;
-  const agnesAiEnvironment = options.agnesAiEnvironment ?? process.env;
+  let registry: ProjectRegistry;
   const projectOf = (request: FastifyRequest): StoreSet => (request as unknown as { project: StoreSet }).project;
   const resolveProjectId = (request: FastifyRequest): string => {
     const raw = request.headers['x-project-id'];
     const id = (typeof raw === 'string' && raw.trim().length > 0) ? raw.trim() : defaultProjectId;
-    return assertProjectId(id);
+    const projectId = assertProjectId(id);
+    if (!registry.isActive(projectId)) throw new ApiError(404, 'PROJECT_NOT_FOUND', '项目不存在或已归档。');
+    return projectId;
   };
   const modelResolver = (set: StoreSet) => (binding: ModelBinding): boolean => set.settings.hasDeclaredTextModelBinding(binding);
   const revisionResolver = (set: StoreSet) => {
@@ -76,7 +75,7 @@ export async function createApp(options: AppOptions): Promise<FastifyInstance> {
     };
   };
   try {
-    const registry = await ProjectRegistry.open(options.dataDir);
+    registry = await ProjectRegistry.open(options.dataDir);
     app.addHook('onClose', async () => { await pool.close(); });
     app.addHook('onRequest', async (request, reply) => {
       reply.header('x-request-id', request.id);
@@ -102,6 +101,8 @@ export async function createApp(options: AppOptions): Promise<FastifyInstance> {
         reply.header('access-control-allow-headers', 'Content-Type, X-Request-Id, X-Project-Id');
         return reply.code(204).send();
       }
+      // Project lifecycle routes address the registry itself, not the currently selected project.
+      if (request.url === '/api/projects' || request.url.startsWith('/api/projects/')) return;
       // Every project-scoped request routes to that project's isolated store set.
       (request as unknown as { project: StoreSet }).project = await pool.get(resolveProjectId(request));
     });
@@ -131,6 +132,7 @@ export async function createApp(options: AppOptions): Promise<FastifyInstance> {
     });
     app.post<{ Params: { id: string } }>('/api/projects/:id/sync-langflow', async (request) => {
       const id = assertProjectId(request.params.id);
+      if (!registry.isActive(id)) throw new ApiError(404, 'PROJECT_NOT_FOUND', '项目不存在或已归档。');
       const set = await pool.get(id);
       const name = registry.get(id)?.name ?? id;
       const result = await set.langflow.createProject(name);
@@ -207,10 +209,6 @@ export async function createApp(options: AppOptions): Promise<FastifyInstance> {
       const p = projectOf(request);
       p.engine.assertAvailable();
       return p.settings.save(saveSettingsSchema.parse(request.body));
-    });
-    app.post('/api/settings/validate-agnesai', async (request) => {
-      noBody.parse(request.body === undefined ? {} : request.body);
-      return validateAgnesAi(agnesAiFetch, agnesAiEnvironment);
     });
     app.get('/api/roles', async (request) => { const p = projectOf(request); return p.roles.read(modelResolver(p)); });
     app.post('/api/roles', { bodyLimit: 64 * 1024 }, async (request, reply) => {

@@ -1,6 +1,6 @@
 # Settings v2 implementation contract
 
-Scope: provider/account/model configuration, legacy metadata migration, a read-only AgnesAI catalogue check, and the OpenAI-compatible text route used by explicitly enabled workflow agent nodes. Credential values are not stored or exposed. Image generation remains local mock SVG; CLI login and tools remain unavailable.
+Scope: provider/account/model configuration, legacy metadata migration, and the OpenAI-compatible text route used by explicitly enabled workflow agent nodes. Credential values are not stored or exposed. Image generation remains local mock SVG; CLI login and tools remain unavailable.
 
 ## Ownership
 
@@ -52,12 +52,11 @@ Existing default empty config becomes v2 with empty provider/account/model array
 - secretEnv uses existing optional uppercase environment-variable-name rule. Reject raw keys/unknown fields.
 - Model capabilities are nonempty, unique declared capability values. Each binding must resolve to the same provider/account/model ownership chain, an enabled account, and matching declared capability (`text` route allows text or code).
 - Credential status returns account IDs and presence only. Never return/persist key values and never call a provider on save. When creating an agent-enabled run, resolve the selected text binding and require the referenced environment variable in the API process before persisting/scheduling.
-- `POST /api/settings/validate-agnesai` reads `AGNES_API_KEY` (with legacy `GNESAI_API_KEY` fallback) from the API service process and makes one bounded `GET https://apihub.agnes-ai.com/v1/models` request. AgentsRoom agent environment variables are not inherited by this separate process. It returns sanitized status, timestamp and model count only. It never saves settings, exposes the key or sends a generation request. A readable model catalogue does not prove generation permission.
 - Settings save may use a route-specific request body limit of 128KiB; other routes retain 16KiB.
 
 ## Frontend
 
-Reorganize around provider panels, nested account profiles and per-account models. Adding accounts or models is distinct from adding a provider. Support manual model IDs, capability choices, search and pinned models. Keep the AgnesAI environment-key check explicit and separate from manual catalogue configuration; it is read-only and does not test generation. Show credential presence separately from supplier authentication.
+Reorganize around provider panels, nested account profiles and per-account models. Adding accounts or models is distinct from adding a provider. Support manual model IDs, capability choices, search and pinned models. Show credential presence separately from supplier authentication.
 
 Default routing selects a full binding, displaying provider/account/model and source (workspace default); the image route stays local mock SVG. A role may override the text route with its own binding. Only prompt nodes explicitly set to “调用代理角色” issue text requests. Anthropic/Google protocols, image model calls, tool use, cost accounting and automatic capability verification remain unavailable. Delete cascades may remove dependent unsaved metadata and clear affected bindings, with explicit confirmation for referenced entities. Preserve revision conflict handling, dirty-navigation protection, loading/error states, responsiveness and active defaultCount behavior.
 

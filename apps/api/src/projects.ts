@@ -86,6 +86,10 @@ export class ProjectRegistry {
     return id === 'default' ? defaultRecord() : undefined;
   }
 
+  isActive(id: string): boolean {
+    return this.get(id) !== undefined;
+  }
+
   async create(input: { name: string; id?: string }, revision: number): Promise<ProjectRecord> {
     const task = this.tail.then(async () => {
       const current = await readProjectIndex(this.dataDir);

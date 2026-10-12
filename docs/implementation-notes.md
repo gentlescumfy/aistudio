@@ -1,6 +1,6 @@
-# 项目化改造实施记录（第 1–3 项）
+# 项目化改造实施记录
 
-> 方案：`docs/project-scoped-refactor-plan.md` · 基准：`main @ 608f794` · 记录日期：2026-10-09
+> 方案：`docs/project-scoped-refactor-plan.md` · 基准：`main` · 记录日期：2026-10-12
 > **所有改动均在工作区未提交。** 验证环境为 Windows（目录 fsync EPERM 限制，后端集成测试与基线同条件对比）。
 
 ## 总览
@@ -10,8 +10,8 @@
 | 1. 移除媒体硬编码 | ✅ | `workflows.ts` + `workflowUtils.ts`（双端同步）+ 3 个测试 |
 | 2. projectId + 分目录 | ✅ | `projects.ts`（新）+ `store-pool.ts`（新）+ `app.ts` |
 | 3. 项目 CRUD + Langflow 同步 | ✅ | `/api/projects*` 端点 + `langflow.ts createProject()` |
-| 4. langflow.ts 异步 `/build` | ⏳ | 未开始 |
-| 5. MCP + 治理网关 | ⏳ | 未开始 |
+| 4. langflow.ts 异步 `/build` | ✅ | 已实现 job 提交、事件流轮询、取消传播与未知结果保护 |
+| 5. MCP + 治理网关 | ✅ | 已实现治理拦截、持久化 journal、完成状态及 OpenAPI 契约 |
 
 ---
 
@@ -119,9 +119,17 @@ POST /api/projects/:id/delete             default 不可删；删除后 evict st
 2. Host 校验正则被双重转义（`127\.0\.0\.1` → `127\\.`），会导致合法 host 被拒——已改回
 3. `ProjectRegistry.index` 未初始化、`LangflowService` 回调签名不匹配——编译期暴露并修复
 
+## §5 2026-10-12 架构评审修复
+
+- 项目作用域请求现在必须命中活动注册表；未注册或已删除项目返回 `PROJECT_NOT_FOUND`，不会因请求自动创建数据目录。
+- `StorePool` 对同一项目复用正在进行的打开 Promise，避免并发首请求争抢 `writer.lock`。
+- MCP 治理 journal 使用按项目目录的进程内串行事务；工具调用完成状态通过持久化接口写回，不再停留在仅内存的 `succeeded`。
+- 新增 API/治理回归测试覆盖项目生命周期、并发初始化、MCP 完成状态和并发 journal 更新。
+- MCP `execute` 与 `journal` 路由已纳入 OpenAPI；请求体与路由共用 `mcp-contract.ts`，文档明确当前仅返回授权后的 mock 执行结果。
+
 ---
 
-## §5 遗留任务（按优先级）
+## §6 遗留任务（按优先级）
 
 | # | 任务 | 说明 |
 |---|---|---|
@@ -131,13 +139,14 @@ POST /api/projects/:id/delete             default 不可删；删除后 evict st
 | 4 | `openapi.ts` 补 `/api/projects*` 描述 | ✅ 已实现。新增相关项目端点及 `projectId` 返回。 |
 | 5 | 启用 `lfx[sandbox]` / `lfx[toolguard]` | ✅ 已实现。在 `services/langflow/pyproject.toml` 中增加并安装。 |
 | 6 | 治理网关（MCP 前置） | ✅ 已实现。`maxSteps`/`maxToolCalls`/`maxCost` 在 `GovernanceGateway` 被读取并拦截。 |
+| 7 | MCP OpenAPI 契约 | ✅ 已实现。覆盖执行请求、授权拒绝、attempt 及 journal 响应，并增加 API 回归断言。 |
 
-## §6 已知问题（未修复，非本次引入）
+## §7 已知问题（未修复，非本次引入）
 
-1. `Handoff` 结构化契约未实现，agent 输出为裸文本直传下游
-2. Langflow `polling` 模式的事件保留时长与并发上限未实测（调研文档 §4.5）
+1. Langflow `polling` 模式的事件保留时长与并发上限未实测（调研文档 §4.5）
+2. 前端 `types.ts` 与后端 Zod schema 仍为手工镜像；当前未引入共享 schema package，需在契约扩展频繁后再评估迁移成本
 
-## §7 工作区其他变更（非本次改动）
+## §8 工作区其他变更（非本次改动）
 
 - `.gitignore` 增加 `.agents/mcp_config.json`（用户改动）
 - `run-rea-direct.mjs` / `docs/agentsroom-collaboration-analysis.md` —— 外部工具产物，未纳入整理

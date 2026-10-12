@@ -4,7 +4,7 @@ A visual orchestration studio for reusable image, video and coding workflows.
 
 ## Current milestone
 
-The local Studio integrates real Langflow1.12.5 for native visual editing and API execution, alongside versioned model settings, role metadata and explicitly labeled mock brand assets. Workflow canvas prompt nodes can make a bounded, single-turn OpenAI-compatible text call and hand the result to the next node. The coffee-launch path is implemented, but its live model call is not verified yet: AgnesAI provider/account/model metadata and the default text route are saved, while the API process lacks its secret environment variable; a minimal request with the available agent-shell key returned AgnesAI HTTP 401. Production deployment remains outside this delivery.
+The local Studio integrates real Langflow1.12.5 for native visual editing and API execution, alongside versioned model settings, role metadata and explicitly labeled mock brand assets. Workflow canvas prompt nodes can make a bounded, single-turn OpenAI-compatible text call and hand the result to the next node. Production deployment remains outside this delivery.
 
 The application has three independently managed services:
 
@@ -63,4 +63,4 @@ Production authentication, billing, real media generation, video editing and iso
 - [Langflow integration contract](docs/langflow-integration-contract.md): native connection, flow listing, execution receipts and authentication boundaries.
 - [Workflow configuration contract](docs/workflow-configuration-contract.md): React Flow canvas contracts, mixed text-agent/local-SVG execution and immutable handoff snapshots.
 
-Native Langflow and existing Studio regressions passed as recorded in `docs/verification.md`. The coffee-launch workflow is implemented to call three text roles when the API has a valid route and credential; the development settings contain the AgnesAI route, but live generation is not verified until the API process has a valid `AGNES_API_KEY`. A minimal request with the prior agent-shell credential returned HTTP 401, so the full workflow is not live-verified. Image steps still emit 1024 × 1024 mock SVG, not AI-generated images or a media-processing/export pipeline.
+Native Langflow and existing Studio regressions passed as recorded in `docs/verification.md`. The coffee-launch workflow calls three text roles when the API has a valid route and credential. Image steps still emit 1024 × 1024 mock SVG, not AI-generated images or a media-processing/export pipeline.

@@ -14,6 +14,12 @@ function json(body: unknown, status = 200, headers?: HeadersInit): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...headers } });
 }
 
+function templateField(node: { data: { node: { template: Record<string, { value?: unknown }> } } }, name: string): { value?: unknown } {
+  const field = node.data.node.template[name];
+  assert.ok(field, `compiled template field '${name}' is missing`);
+  return field;
+}
+
 test('compileWorkflowToLangflow converts workflow starter definition to Langflow flow payload', () => {
   const compiled = compileWorkflowToLangflow(starterDefinition, { projectId: 'project-alpha' });
 
@@ -31,13 +37,15 @@ test('compileWorkflowToLangflow converts workflow starter definition to Langflow
   // 1. Agent Prompt 节点校验
   const agentNode = compiled.data.nodes.find((n) => n.id === 'campaign-brief')!;
   assert.ok(agentNode);
+  const starterPrompt = starterDefinition.nodes.find((node) => node.id === 'campaign-brief');
+  if (!starterPrompt || starterPrompt.kind !== 'prompt') throw new Error('starter campaign brief must be a prompt node');
   assert.equal(agentNode.type, 'Agent');
   assert.equal(agentNode.data.type, 'Agent');
   assert.equal(agentNode.data.node.display_name, '提炼上市创意简报');
-  assert.equal(agentNode.data.node.template.template.value, starterDefinition.nodes[0]!.config.template);
-  assert.equal(agentNode.data.node.template.execution_mode.value, 'agent');
-  assert.equal(agentNode.data.node.template.role_id.value, 'scriptwriter');
-  assert.equal(agentNode.data.node.template.role_revision.value, 1);
+  assert.equal(templateField(agentNode, 'template').value, starterPrompt.config.template);
+  assert.equal(templateField(agentNode, 'execution_mode').value, 'agent');
+  assert.equal(templateField(agentNode, 'role_id').value, 'scriptwriter');
+  assert.equal(templateField(agentNode, 'role_revision').value, 1);
   assert.equal(agentNode.position.x, 80);
   assert.equal(agentNode.position.y, 160);
 
@@ -47,9 +55,9 @@ test('compileWorkflowToLangflow converts workflow starter definition to Langflow
   assert.equal(imageNode.type, 'ImageGenerator');
   assert.equal(imageNode.data.type, 'ImageGenerator');
   assert.equal(imageNode.data.node.display_name, '生成上市主视觉');
-  assert.equal(imageNode.data.node.template.width.value, 1024);
-  assert.equal(imageNode.data.node.template.height.value, 1024);
-  assert.equal(imageNode.data.node.template.count.value, 1);
+  assert.equal(templateField(imageNode, 'width').value, 1024);
+  assert.equal(templateField(imageNode, 'height').value, 1024);
+  assert.equal(templateField(imageNode, 'count').value, 1);
   assert.equal(imageNode.position.x, 980);
   assert.equal(imageNode.position.y, 160);
 
@@ -59,7 +67,7 @@ test('compileWorkflowToLangflow converts workflow starter definition to Langflow
   assert.equal(exportNode.type, 'ExportOutput');
   assert.equal(exportNode.data.type, 'ExportOutput');
   assert.equal(exportNode.data.node.display_name, '交付主视觉素材');
-  assert.equal(exportNode.data.node.template.export_format.value, 'zip');
+  assert.equal(templateField(exportNode, 'export_format').value, 'zip');
   assert.equal(exportNode.position.x, 1280);
   assert.equal(exportNode.position.y, 160);
 
@@ -94,9 +102,9 @@ test('compileWorkflowToLangflow supports template execution mode for prompt node
   const node = compiled.data.nodes[0]!;
   assert.equal(node.type, 'PromptTemplate');
   assert.equal(node.data.type, 'PromptTemplate');
-  assert.equal(node.data.node.template.execution_mode.value, 'template');
-  assert.equal(node.data.node.template.role_id.value, null);
-  assert.equal(node.data.node.template.role_revision.value, null);
+  assert.equal(templateField(node, 'execution_mode').value, 'template');
+  assert.equal(templateField(node, 'role_id').value, null);
+  assert.equal(templateField(node, 'role_revision').value, null);
 });
 
 test('LangflowService.publishWorkflowToProject posts compiled flow to Langflow upstream', async (t) => {

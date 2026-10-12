@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { Check, CircleAlert, FlaskConical, LoaderCircle, Pin, PinOff, Plus, RotateCcw, Save, Search, Settings2, Trash2 } from 'lucide-react';
+import { Check, FlaskConical, Pin, PinOff, Plus, RotateCcw, Save, Search, Settings2, Trash2 } from 'lucide-react';
 import { api, validateSettingsDraft } from '../api';
-import type { AccountConfig, AgnesAiValidation, Capability, ImageRoute, ModelBinding, ModelConfig, ProviderConfig, SettingsResponse, StudioSettings } from '../types';
+import type { AccountConfig, Capability, ImageRoute, ModelBinding, ModelConfig, ProviderConfig, SettingsResponse, StudioSettings } from '../types';
 
 const capabilityLabels: Record<Capability, string> = { text: '文本', code: '代码', image: '图像', video: '视频', audio: '音频' };
 const allCapabilities = Object.keys(capabilityLabels) as Capability[];
@@ -26,13 +26,9 @@ export function SettingsPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  const [agnesValidation, setAgnesValidation] = useState<AgnesAiValidation | null>(null);
-  const [agnesValidationError, setAgnesValidationError] = useState<string | null>(null);
-  const [checkingAgnesAi, setCheckingAgnesAi] = useState(false);
   const [search, setSearch] = useState('');
   const [pinnedOnly, setPinnedOnly] = useState(false);
   const controller = useRef<AbortController | null>(null);
-  const validationController = useRef<AbortController | null>(null);
   const dirty = !!snapshot && !!draft && JSON.stringify(snapshot.settings) !== JSON.stringify(draft);
   const visibleModels = useMemo(() => new Set((draft?.models || []).filter(model => {
     const account = draft?.accounts.find(item => item.id === model.accountId);
@@ -51,7 +47,7 @@ export function SettingsPage() {
     } catch (failure) { if (!current.signal.aborted) setError((failure as Error).message); }
     finally { if (!current.signal.aborted) setBusy(false); }
   };
-  useEffect(() => { void load(); return () => { controller.current?.abort(); validationController.current?.abort(); }; }, []);
+  useEffect(() => { void load(); return () => { controller.current?.abort(); }; }, []);
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => { if (dirty) { event.preventDefault(); event.returnValue = ''; } };
     const navigate = (event: MouseEvent) => {
@@ -68,19 +64,6 @@ export function SettingsPage() {
 
   const change = (update: (current: StudioSettings) => StudioSettings) => {
     setSaved(false); setDraft(current => current && update(current));
-  };
-  const validateAgnesAi = async () => {
-    validationController.current?.abort();
-    const current = new AbortController(); validationController.current = current;
-    setCheckingAgnesAi(true); setAgnesValidation(null); setAgnesValidationError(null);
-    try {
-      const result = await api.validateAgnesAi(current.signal);
-      if (!current.signal.aborted) setAgnesValidation(result);
-    } catch (failure) {
-      if (!current.signal.aborted) setAgnesValidationError((failure as Error).message || 'AgnesAI 配置验证失败。');
-    } finally {
-      if (!current.signal.aborted) setCheckingAgnesAi(false);
-    }
   };
   const addProvider = () => change(current => current.providers.length >= 8 ? current : ({ ...current, providers: [...current.providers, { id: newId('provider'), name: '', transport: 'api', protocol: 'openai-compatible', baseUrl: '' }] }));
   const addAccount = (providerId: string) => change(current => current.accounts.length >= 16 ? current : ({ ...current, accounts: [...current.accounts, { id: newId('account'), providerId, label: '', secretEnv: '', enabled: true }] }));
@@ -167,10 +150,8 @@ export function SettingsPage() {
 
   return <section aria-labelledby="settings-title" className="settings-page">
     <div className="page-heading"><div><div className="eyebrow">连接与运行偏好</div><h1 id="settings-title">工作台配置</h1><p>分层管理供应商、账号与模型目录。仅保存手工声明的配置草稿。</p></div><Settings2 size={26} /></div>
-    <div className="settings-runtime"><FlaskConical size={22} /><div className="settings-runtime-copy"><strong>{snapshot?.runtime.externalProvidersEnabled ? '代理文本调用：检测到可用模型配置' : '代理文本调用：尚未配置可用模型'}</strong><p>在供应商、账号和模型目录中填入配置，并设置默认文本路由或在代理角色中单独绑定模型。API 服务从账号声明的环境变量读取密钥；AgnesAI 验证只读取模型目录，不会发起生成请求。图像生成仍使用本地 SVG，代理文本调用可能产生供应商费用。</p>
-      {agnesValidation && <p className={`agnesai-validation-result ${agnesValidation.ok ? 'is-success' : 'is-error'}`} role="status">{agnesValidation.ok && <Check size={14} />}{!agnesValidation.ok && <CircleAlert size={14} />}{agnesValidation.message}{agnesValidation.checkedAt ? ` · ${new Date(agnesValidation.checkedAt).toLocaleTimeString('zh-CN')}` : ''}</p>}
-      {agnesValidationError && <p className="agnesai-validation-result is-error" role="alert"><CircleAlert size={14} />{agnesValidationError}</p>}
-    </div><span className="mock-badge">{snapshot?.runtime.externalProvidersEnabled ? '文本模型已配置' : '等待模型配置'}</span><button type="button" className="secondary-button agnesai-validation-button" onClick={() => void validateAgnesAi()} disabled={checkingAgnesAi} aria-busy={checkingAgnesAi}>{checkingAgnesAi ? <LoaderCircle size={14} className="spin" /> : <FlaskConical size={14} />}{checkingAgnesAi ? '正在验证…' : '验证 AgnesAI'}</button></div>
+    <div className="settings-runtime"><FlaskConical size={22} /><div className="settings-runtime-copy"><strong>{snapshot?.runtime.externalProvidersEnabled ? '代理文本调用：检测到可用模型配置' : '代理文本调用：尚未配置可用模型'}</strong><p>在供应商、账号和模型目录中填入配置，并设置默认文本路由或在代理角色中单独绑定模型。API 服务从账号声明的环境变量读取密钥。图像生成仍使用本地 SVG，代理文本调用可能产生供应商费用。</p>
+    </div><span className="mock-badge">{snapshot?.runtime.externalProvidersEnabled ? '文本模型已配置' : '等待模型配置'}</span></div>
     {error && <div className="inline-error" role="alert">{error}<button type="button" className="secondary-button" onClick={() => void load()} disabled={busy}><RotateCcw size={14} />重新加载配置</button><p>重新加载会丢弃未保存的修改；版本冲突时请先记录修改内容。</p></div>}
     {!draft || !snapshot ? <p role="status">{busy ? '正在加载配置…' : '配置暂不可用，请重新加载。'}</p> :
       <form onSubmit={event => void save(event)}>

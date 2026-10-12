@@ -1,0 +1,157 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1120" viewBox="0 0 1800 1120" role="img" aria-labelledby="title desc">
+  <title id="title">AI Studio 当前系统架构图</title>
+  <desc id="desc">从浏览器和 React 前端，经 Fastify API、项目隔离和本地文件存储，到工作流执行、治理、Langflow 和 OpenAI-compatible 模型服务的架构图。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,3 L0,6 Z" fill="#4b5563"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+    <style>
+      .bg { fill:#f8fafc; }
+      .title { font: 700 30px "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill:#0f172a; }
+      .subtitle { font: 400 15px "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill:#64748b; }
+      .section { font: 700 17px "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill:#334155; }
+      .node-title { font: 700 17px "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill:#0f172a; }
+      .node-text { font: 400 14px "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill:#334155; }
+      .small { font: 400 12px "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill:#64748b; }
+      .confirmed { fill:#ecfdf5; stroke:#159570; }
+      .mock { fill:#fffbeb; stroke:#d97706; }
+      .external { fill:#fff1f2; stroke:#e11d48; }
+      .storage { fill:#eff6ff; stroke:#2563eb; }
+      .box { stroke-width:2; rx:14; filter:url(#shadow); }
+      .flow { stroke:#4b5563; stroke-width:2.5; fill:none; marker-end:url(#arrow); }
+      .dashed { stroke-dasharray:8 7; }
+      .legend-line { stroke-width:3; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1800" height="1120"/>
+  <text class="title" x="72" y="62">AI Studio 当前系统架构</text>
+  <text class="subtitle" x="72" y="91">源码确认版本 · 项目级隔离 · 本地工作流执行与 Langflow 外部运行并存</text>
+
+  <text class="section" x="72" y="145">1. 交互层</text>
+  <rect class="box confirmed" x="72" y="170" width="330" height="160"/>
+  <text class="node-title" x="98" y="205">浏览器 / React Web</text>
+  <text class="node-text" x="98" y="236">App.tsx：Hash 视图路由</text>
+  <text class="node-text" x="98" y="261">工作台、角色、工作流、Langflow</text>
+  <text class="node-text" x="98" y="286">React Flow 画布与本地状态</text>
+  <text class="small" x="98" y="312">apps/web</text>
+
+  <rect class="box confirmed" x="478" y="170" width="330" height="160"/>
+  <text class="node-title" x="504" y="205">HTTP 客户端出口</text>
+  <text class="node-text" x="504" y="236">apps/web/src/api.ts</text>
+  <text class="node-text" x="504" y="261">统一注入 x-project-id</text>
+  <text class="node-text" x="504" y="286">响应契约校验与错误归一化</text>
+  <text class="small" x="504" y="312">fetch → 127.0.0.1:4000</text>
+
+  <path class="flow" d="M402 250 H478"/>
+
+  <text class="section" x="72" y="390">2. API 与项目边界</text>
+  <rect class="box confirmed" x="72" y="420" width="330" height="185"/>
+  <text class="node-title" x="98" y="455">Fastify API</text>
+  <text class="node-text" x="98" y="486">请求级 Host / Origin / CORS</text>
+  <text class="node-text" x="98" y="511">Zod 输入校验与 OpenAPI</text>
+  <text class="node-text" x="98" y="536">项目端点与运行端点</text>
+  <text class="node-text" x="98" y="561">/api/projects · /api/runs · /api/mcp</text>
+  <text class="small" x="98" y="586">apps/api/src/app.ts</text>
+
+  <rect class="box confirmed" x="478" y="420" width="330" height="185"/>
+  <text class="node-title" x="504" y="455">ProjectRegistry</text>
+  <text class="node-text" x="504" y="486">项目创建、删除、列表</text>
+  <text class="node-text" x="504" y="511">revision 乐观锁</text>
+  <text class="node-text" x="504" y="536">未注册项目 → 404</text>
+  <text class="node-text" x="504" y="561">default 项目兼容遗留目录</text>
+  <text class="small" x="504" y="586">projects.json</text>
+
+  <rect class="box confirmed" x="884" y="420" width="330" height="185"/>
+  <text class="node-title" x="910" y="455">StorePool</text>
+  <text class="node-text" x="910" y="486">按 projectId 缓存 StoreSet</text>
+  <text class="node-text" x="910" y="511">首次打开 Promise 去重</text>
+  <text class="node-text" x="910" y="536">项目删除时 evict / close</text>
+  <text class="node-text" x="910" y="561">每项目独立 RunEngine</text>
+  <text class="small" x="910" y="586">store-pool.ts</text>
+
+  <path class="flow" d="M643 330 V420"/>
+  <path class="flow" d="M237 420 V350 H643"/>
+  <path class="flow" d="M402 512 H478"/>
+  <path class="flow" d="M808 512 H884"/>
+
+  <text class="section" x="72" y="675">3. 项目级数据与执行</text>
+  <rect class="box storage" x="72" y="705" width="330" height="255"/>
+  <text class="node-title" x="98" y="740">项目级 StoreSet</text>
+  <text class="node-text" x="98" y="771">FileStore · SettingsStore</text>
+  <text class="node-text" x="98" y="796">RoleStore · WorkflowStore</text>
+  <text class="node-text" x="98" y="821">AssetStore · LangflowService</text>
+  <text class="node-text" x="98" y="846">RunEngine</text>
+  <text class="small" x="98" y="882">独立 runs / settings / roles / workflows</text>
+  <text class="small" x="98" y="906">langflow-runs / mcp-journal / assets</text>
+  <text class="small" x="98" y="930">CODE_CONFIRMED</text>
+
+  <rect class="box confirmed" x="478" y="705" width="330" height="255"/>
+  <text class="node-title" x="504" y="740">RunEngine</text>
+  <text class="node-text" x="504" y="771">工作流节点依赖解析</text>
+  <text class="node-text" x="504" y="796">项目内串行 drain</text>
+  <text class="node-text" x="504" y="821">run 恢复、重试、取消</text>
+  <text class="node-text" x="504" y="846">代理节点与图像节点分流</text>
+  <text class="small" x="504" y="882">engine.ts</text>
+
+  <rect class="box mock" x="884" y="705" width="330" height="115"/>
+  <text class="node-title" x="910" y="740">MockProvider</text>
+  <text class="node-text" x="910" y="771">本地 SVG 图像生成</text>
+  <text class="small" x="910" y="796">MOCK · 当前默认图像路径</text>
+
+  <rect class="box confirmed" x="884" y="845" width="330" height="115"/>
+  <text class="node-title" x="910" y="880">GovernanceGateway</text>
+  <text class="node-text" x="910" y="911">代理限制、MCP 授权、attempt journal</text>
+  <text class="small" x="910" y="936">治理拒绝会阻止节点执行</text>
+
+  <path class="flow" d="M1049 605 V705"/>
+  <path class="flow" d="M808 760 H884"/>
+  <path class="flow" d="M808 890 H884"/>
+
+  <text class="section" x="1280" y="390">4. 外部依赖与异步链路</text>
+  <rect class="box confirmed" x="1280" y="420" width="390" height="155"/>
+  <text class="node-title" x="1306" y="455">TextAgentRuntime</text>
+  <text class="node-text" x="1306" y="486">单轮文本代理调用</text>
+  <text class="node-text" x="1306" y="511">凭据仅从服务端环境变量读取</text>
+  <text class="node-text" x="1306" y="536">ProviderOutcomeUnknown 保护</text>
+  <text class="small" x="1306" y="561">agent-runtime.ts</text>
+
+  <rect class="box external" x="1280" y="625" width="390" height="155"/>
+  <text class="node-title" x="1306" y="660">OpenAI-compatible 模型服务</text>
+  <text class="node-text" x="1306" y="691">外部 HTTP endpoint</text>
+  <text class="node-text" x="1306" y="716">需要真实凭据和网络可达性</text>
+  <text class="small" x="1306" y="751">EXTERNAL_REQUIRED</text>
+
+  <rect class="box confirmed" x="1280" y="830" width="390" height="155"/>
+  <text class="node-title" x="1306" y="865">LangflowService</text>
+  <text class="node-text" x="1306" y="896">异步 /api/v1/build/{flowId}/flow</text>
+  <text class="node-text" x="1306" y="921">SSE /events 轮询与取消传播</text>
+  <text class="small" x="1306" y="956">langflow.ts · 项目级 ledger</text>
+
+  <rect class="box external" x="1280" y="1030" width="390" height="70"/>
+  <text class="node-title" x="1306" y="1072">Langflow 1.12.5 · 127.0.0.1:7860</text>
+
+  <path class="flow" d="M1214 902 H1280"/>
+  <path class="flow" d="M1475 575 V625"/>
+  <path class="flow" d="M1475 985 V1030"/>
+
+  <rect class="box confirmed" x="478" y="1010" width="330" height="70"/>
+  <text class="node-title" x="504" y="1052">MCP API + Journal</text>
+  <text class="node-text" x="690" y="1052">当前授权后的 mock 执行</text>
+  <path class="flow" d="M1049 960 V1015 H808"/>
+
+  <rect class="box storage" x="72" y="1005" width="330" height="75"/>
+  <text class="node-title" x="98" y="1048">本地文件系统</text>
+  <text class="node-text" x="250" y="1048">dataDir / projects/{id} / writer.lock</text>
+  <path class="flow" d="M237 960 V1005"/>
+
+  <line x1="72" y1="1098" x2="105" y2="1098" stroke="#159570" class="legend-line"/>
+  <text class="small" x="115" y="1102">源码确认</text>
+  <line x1="205" y1="1098" x2="238" y2="1098" stroke="#d97706" class="legend-line"/>
+  <text class="small" x="248" y="1102">本地 Mock</text>
+  <line x1="340" y1="1098" x2="373" y2="1098" stroke="#e11d48" class="legend-line"/>
+  <text class="small" x="383" y="1102">外部/环境验证</text>
+</svg>

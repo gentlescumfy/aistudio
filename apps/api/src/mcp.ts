@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { GovernanceGateway } from './governance.js';
 import type { StoreSet } from './store-pool.js';
 import { ApiError } from './domain.js';
+import { mcpExecuteRequestSchema } from './mcp-contract.js';
 
 export const mcpGatewayPlugin: FastifyPluginAsync = async (app) => {
   app.post('/api/mcp/execute', async (request, reply) => {
@@ -10,17 +11,7 @@ export const mcpGatewayPlugin: FastifyPluginAsync = async (app) => {
     const gateway = new GovernanceGateway(project.file.directory);
     await gateway.load();
 
-    const input = z.strictObject({
-      runId: z.string().uuid(),
-      nodeId: z.string(),
-      roleId: z.string(),
-      toolName: z.string(),
-      parameters: z.record(z.string(), z.unknown()),
-      currentStepCount: z.number().int().nonnegative(),
-      currentToolCallCount: z.number().int().nonnegative(),
-      currentCost: z.number().nonnegative(),
-      estimatedCost: z.number().nonnegative().default(0),
-    }).parse(request.body);
+    const input = mcpExecuteRequestSchema.parse(request.body);
     
     // Resolve the role to get its limits
     const roleSnapshot = project.roles.revisions(input.roleId, () => true).at(-1);
@@ -50,10 +41,9 @@ export const mcpGatewayPlugin: FastifyPluginAsync = async (app) => {
     
     // TODO: Forward to real MCP server
     
-    attempt.status = 'succeeded';
-    attempt.updatedAt = new Date().toISOString();
+    const completed = await gateway.completeToolCall(attempt.id, 'succeeded');
 
-    return { result: 'Authorized and mocked execution', attempt };
+    return { result: 'Authorized and mocked execution', attempt: completed };
   });
 
   app.get('/api/mcp/journal/:runId', async (request) => {

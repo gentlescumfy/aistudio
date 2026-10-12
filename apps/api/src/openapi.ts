@@ -4,6 +4,8 @@ import { legacySettingsSchema, saveSettingsSchema, settingsSchema } from './sett
 import { archiveRoleRequestSchema, roleDefinitionSchema } from './roles.js';
 import { workflowArchiveRequestSchema, workflowDefinitionSchema, workflowMutationSchema, workflowPublishRequestSchema, workflowRecordSchema, workflowValidateRequestSchema } from './workflow-contract.js';
 import { langflowConfigSchema, langflowRunRequestSchema, saveLangflowConfigSchema } from './langflow-contract.js';
+import { toolAttemptSchema } from './governance.js';
+import { mcpExecuteRequestSchema } from './mcp-contract.js';
 
 const reference = (name: string) => ({ $ref: `#/components/schemas/${name}` });
 const json = (schema: unknown) => ({ content: { 'application/json': { schema } } });
@@ -54,7 +56,6 @@ export const openapi = {
       get: { description: 'Local provider, model, route metadata, agent capability and credential presence only. Never returns credential values.', responses: { 200: { description: 'Configuration snapshot', ...json(reference('SettingsResponse')) }, ...errorResponses } },
       post: { description: 'Accept schemaVersion=2 provider/account/model metadata or the legacy v1 {revision,settings} snapshot; persist as v2 with optimistic revision checks. Raw API keys are rejected; no external connection is made.', requestBody: { required: true, ...json(reference('SaveSettings')) }, responses: { 200: { description: 'Saved v2 configuration snapshot', ...json(reference('SettingsResponse')) }, ...errorResponses } },
     },
-    '/api/settings/validate-agnesai': { post: { description: 'Use the API process AGNES_API_KEY (with legacy GNESAI_API_KEY fallback) to make one read-only GET request to the AgnesAI model catalogue. Never returns the key, saves settings or generates content.', requestBody: { required: true, ...json({ type: 'object', additionalProperties: false }) }, responses: { 200: { description: 'Credential and model-catalogue validation result', ...json(reference('AgnesAiValidation')) }, ...errorResponses } } },
     '/api/roles': {
       get: { description: 'Read the role library and non-executable allowlisted tool catalogue. Published workflow prompt nodes can invoke each selected role for a single text turn.', responses: { 200: { description: 'Role library snapshot', ...json(reference('RoleLibrary')) }, ...errorResponses } },
       post: { description: 'Create a custom role draft. Persist one immutable role revision with optimistic library revision checking.', requestBody: { required: true, ...json(reference('CreateRole')) }, responses: { 201: { description: 'Created draft', ...json(reference('RoleMutation')) }, ...errorResponses } },
@@ -74,6 +75,24 @@ export const openapi = {
     },
     '/api/langflow/runs/{id}': { get: { description: 'Read one persisted Langflow execution receipt.', parameters: [runId], responses: { 200: { description: 'Langflow run receipt', ...json(wrapped('run', reference('LangflowRun'))) }, ...errorResponses } } },
     '/api/langflow/runs/{id}/cancel': action('Cancel a queued or running Langflow execution receipt. Dispatches cancellation to upstream and terminates SSE events.'),
+    '/api/mcp/execute': {
+      post: {
+        description: 'Evaluate a tool call against the selected role limits and allowlisted tools. Approved calls currently return a durable mock completion; no external MCP server is invoked.',
+        requestBody: { required: true, ...json({ $ref: '#/components/schemas/McpExecuteRequest' }) },
+        responses: {
+          200: { description: 'Authorized mock execution', ...json({ type: 'object', required: ['result', 'attempt'], properties: { result: { const: 'Authorized and mocked execution' }, attempt: reference('McpAttempt') } }) },
+          ...errorResponses,
+          403: { description: 'Tool call rejected by governance policy', ...json(reference('McpRejectedResponse')) },
+        },
+      },
+    },
+    '/api/mcp/journal/{runId}': {
+      get: {
+        description: 'Read persisted MCP governance attempts for a run.',
+        parameters: [{ in: 'path', name: 'runId', required: true, schema: { type: 'string', format: 'uuid' } }],
+        responses: { 200: { description: 'MCP governance journal', ...json(reference('McpJournal')) }, ...errorResponses },
+      },
+    },
     '/api/runs': {
       get: { description: 'All runs, newest first. This local v1 has no pagination.', responses: { 200: { description: 'Run history', ...json(wrapped('runs', { type: 'array', items: reference('Run') })) } } },
       post: { description: 'Persist before asynchronous execution. Agent prompt nodes call the configured text model; image and export nodes remain local. Keys are scoped to this data directory; normalized same input returns existing run, different input returns 409.',
@@ -106,10 +125,6 @@ export const openapi = {
       valid: { type: 'boolean' }, issues: { type: 'array', items: { type: 'object', required: ['code', 'message'], properties: { code: { type: 'string' }, message: { type: 'string' }, nodeId: { type: 'string' }, edgeId: { type: 'string' } } } }, warnings: { type: 'array', items: { type: 'string' } },
     } },
     Settings: z.toJSONSchema(settingsSchema),
-    AgnesAiValidation: { type: 'object', required: ['ok', 'status', 'message', 'modelCount', 'checkedAt'], properties: {
-      ok: { type: 'boolean' }, status: { enum: ['connected', 'missing_key', 'unauthorized', 'forbidden', 'rate_limited', 'upstream_error', 'network_error', 'invalid_response'] },
-      message: { type: 'string' }, modelCount: { type: ['integer', 'null'], minimum: 0 }, checkedAt: { type: 'string', format: 'date-time' },
-    } satisfies Record<string, unknown> },
     SettingsResponse: { type: 'object', required: ['schemaVersion', 'revision', 'settings', 'runtime', 'credentials'], properties: {
       schemaVersion: { const: 2 }, revision: { type: 'integer', minimum: 0 }, settings: reference('Settings'),
       runtime: { type: 'object', required: ['mode', 'activeImageModel', 'externalProvidersEnabled'], properties: { mode: { enum: ['mock', 'mixed'] }, activeImageModel: { const: 'mock-svg' }, externalProvidersEnabled: { type: 'boolean' } } },
@@ -146,6 +161,10 @@ export const openapi = {
       id: { type: 'string', format: 'uuid' }, name: { type: 'string' }, description: { type: 'string' }, updatedAt: { type: ['string', 'null'], format: 'date-time' },
     } },
     CreateLangflowRun: z.toJSONSchema(langflowRunRequestSchema),
+    McpExecuteRequest: z.toJSONSchema(mcpExecuteRequestSchema),
+    McpAttempt: z.toJSONSchema(toolAttemptSchema),
+    McpJournal: { type: 'object', required: ['attempts'], properties: { attempts: { type: 'array', items: reference('McpAttempt') } } },
+    McpRejectedResponse: { type: 'object', required: ['error', 'attempt'], properties: { error: { type: 'string' }, attempt: reference('McpAttempt') } },
     LangflowRun: { type: 'object', required: ['id', 'flowId', 'flowName', 'input', 'status', 'createdAt', 'updatedAt', 'output', 'error', 'provider'], properties: {
       id: { type: 'string', format: 'uuid' }, flowId: { type: 'string', format: 'uuid' }, flowName: { type: 'string' }, input: { type: 'string' },
       status: { enum: ['queued', 'running', 'succeeded', 'failed', 'cancelled', 'outcome_unknown'] }, createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },

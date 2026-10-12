@@ -18,9 +18,67 @@ test('health, template visibility, specification and JSON errors', async (t) => 
   assert.ok(spec.paths['/api/roles']);
   assert.ok(spec.paths['/api/roles/{id}/revisions']);
   assert.ok(spec.paths['/api/workflows/{id}/publish']);
+  assert.ok(spec.paths['/api/mcp/execute']);
+  assert.ok(spec.paths['/api/mcp/journal/{runId}']);
+  assert.ok(spec.components.schemas.McpExecuteRequest);
+  assert.ok(spec.components.schemas.McpAttempt);
+  assert.ok(spec.components.schemas.McpJournal);
+  assert.equal(spec.paths['/api/mcp/execute'].post.responses[403].content['application/json'].schema.$ref, '#/components/schemas/McpRejectedResponse');
   assert.equal((await app.inject('/not-found')).json().error.code, 'NOT_FOUND');
   assert.equal((await app.inject(`/api/runs/${randomUUID()}`)).statusCode, 404);
   assert.equal((await app.inject('/api/runs/invalid')).statusCode, 400);
+});
+
+test('project-scoped requests require an active registered project', async (t) => {
+  const { app } = await fixture(t);
+  const unregistered = await app.inject({ method: 'GET', url: '/api/health', headers: { 'x-project-id': 'ghost' } });
+  assert.equal(unregistered.statusCode, 404);
+  assert.equal(unregistered.json().error.code, 'PROJECT_NOT_FOUND');
+
+  const createWithStaleSelection = await app.inject({ method: 'POST', url: '/api/projects', headers: { 'x-project-id': 'ghost' }, payload: { name: 'Created From Stale Selection', revision: 0 } });
+  assert.equal(createWithStaleSelection.statusCode, 201);
+  const projectId = createWithStaleSelection.json<{ record: { id: string } }>().record.id;
+  const deleted = await app.inject({ method: 'POST', url: `/api/projects/${projectId}/delete`, payload: {} });
+  assert.equal(deleted.statusCode, 200);
+
+  const afterDelete = await app.inject({ method: 'GET', url: '/api/health', headers: { 'x-project-id': projectId } });
+  assert.equal(afterDelete.statusCode, 404);
+  assert.equal(afterDelete.json().error.code, 'PROJECT_NOT_FOUND');
+});
+
+test('concurrent first requests for one project share initialization', async (t) => {
+  const { app } = await fixture(t);
+  const created = await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'Concurrent Project', revision: 0 } });
+  assert.equal(created.statusCode, 201);
+  const projectId = created.json<{ record: { id: string } }>().record.id;
+  const responses = await Promise.all(Array.from({ length: 8 }, () => app.inject({ method: 'GET', url: '/api/health', headers: { 'x-project-id': projectId } })));
+  assert.deepEqual(responses.map((response) => response.statusCode), Array(8).fill(200));
+  assert.ok(responses.every((response) => response.json().projectId === projectId));
+});
+
+test('MCP mock execution persists the completed governance attempt', async (t) => {
+  const { app } = await fixture(t);
+  const runId = randomUUID();
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/mcp/execute',
+    payload: {
+      runId,
+      nodeId: 'node-1',
+      roleId: 'architect',
+      toolName: 'context.search',
+      parameters: { query: 'demo' },
+      currentStepCount: 1,
+      currentToolCallCount: 0,
+      currentCost: 0,
+    },
+  });
+  assert.equal(response.statusCode, 200, response.body);
+  assert.equal(response.json().attempt.status, 'succeeded');
+
+  const journal = await app.inject(`/api/mcp/journal/${runId}`);
+  assert.equal(journal.statusCode, 200);
+  assert.equal(journal.json().attempts[0].status, 'succeeded');
 });
 
 test('strict input validation, disabled templates, malformed/oversized JSON and no arbitrary nodes', async (t) => {

@@ -30,7 +30,6 @@ function createMockRole(overrides?: Partial<RoleRecord['limits']>, tools: string
     },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-    modelStatus: 'inherit',
   };
 }
 
@@ -127,4 +126,27 @@ test('GovernanceGateway enforces tool permissions and parameters with actionable
   assert.equal(journal.length, 3);
   assert.equal(journal[2]!.toolName, 'assets.read');
   assert.equal(journal[2]!.status, 'approved');
+});
+
+test('GovernanceGateway persists completion and serializes concurrent journal updates', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'gov-test-'));
+  t.after(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const role = createMockRole();
+  const runId = randomUUID();
+  const first = new GovernanceGateway(dir);
+  const second = new GovernanceGateway(dir);
+  const attempts = await Promise.all([
+    first.evaluateToolCall(role, runId, 'node-1', 'assets.read', { assetId: 'one' }, 1, 0, 0),
+    second.evaluateToolCall(role, runId, 'node-1', 'context.search', { query: 'two' }, 1, 0, 0),
+  ]);
+  assert.equal(new Set(attempts.map((attempt) => attempt.id)).size, 2);
+  await first.completeToolCall(attempts[0]!.id, 'succeeded');
+
+  const reloaded = new GovernanceGateway(dir);
+  await reloaded.load();
+  const journal = reloaded.getJournal(runId);
+  assert.equal(journal.length, 2);
+  assert.equal(journal.find((attempt) => attempt.id === attempts[0]!.id)?.status, 'succeeded');
+  assert.equal(journal.find((attempt) => attempt.id === attempts[1]!.id)?.status, 'approved');
 });
